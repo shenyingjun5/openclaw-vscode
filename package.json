@@ -3,7 +3,7 @@
   "displayName": "OpenClaw",
   "description": "OpenClaw AI Assistant for VS Code - Chat with AI, reference files with @, apply code changes directly",
   "version": "0.1.0",
-  "publisher": "openclaw",
+  "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
     "type": "git",
