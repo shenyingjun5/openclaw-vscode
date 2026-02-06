@@ -58,28 +58,31 @@
     "commands": [
       {
         "command": "openclaw.openChatPanel",
-        "title": "打开招财对话窗口",
-        "icon": "media/chat.svg"
+        "title": "Open Chat Panel",
+        "icon": {
+          "light": "media/chat-light.svg",
+          "dark": "media/chat-dark.svg"
+        }
       },
       {
         "command": "openclaw.sendSelection",
-        "title": "发送选中代码到招财"
+        "title": "Send Selection to OpenClaw"
       },
       {
         "command": "openclaw.sendFile",
-        "title": "发送文件到招财"
+        "title": "Send File to OpenClaw"
       },
       {
         "command": "openclaw.togglePlanMode",
-        "title": "切换计划模式"
+        "title": "Toggle Plan Mode"
       },
       {
         "command": "openclaw.newSession",
-        "title": "新建会话"
+        "title": "New Session"
       },
       {
         "command": "openclaw.clearChat",
-        "title": "清空聊天"
+        "title": "Clear Chat"
       }
     ],
     "menus": {
