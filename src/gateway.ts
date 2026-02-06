@@ -353,11 +353,25 @@ export class GatewayClient {
      * 获取可用模型列表（从配置文件读取）
      */
     public async getModels(): Promise<{ models: ModelInfo[], currentModel: string }> {
-        const configPath = path.join(os.homedir(), '.openclaw', 'config.yaml');
+        // 优先读取 JSON 配置，兼容旧版 YAML
+        const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+        const yamlConfigPath = path.join(os.homedir(), '.openclaw', 'config.yaml');
         
         try {
-            const content = fs.readFileSync(configPath, 'utf-8');
-            const config = yaml.load(content) as any;
+            let config: any = null;
+            
+            // 优先尝试 JSON 配置
+            if (fs.existsSync(jsonConfigPath)) {
+                const content = fs.readFileSync(jsonConfigPath, 'utf-8');
+                config = JSON.parse(content);
+            } else if (fs.existsSync(yamlConfigPath)) {
+                const content = fs.readFileSync(yamlConfigPath, 'utf-8');
+                config = yaml.load(content) as any;
+            }
+            
+            if (!config) {
+                throw new Error('No config file found');
+            }
             
             const models: ModelInfo[] = [];
             let currentModel = 'default';
