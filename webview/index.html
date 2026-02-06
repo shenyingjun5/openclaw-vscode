@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data: https:; font-src ${cspSource};">
+    <link rel="stylesheet" href="${stylesUri}">
+    <title>OpenClaw</title>
+</head>
+<body>
+    <!-- SVG 图标定义 -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+        <!-- 发送/飞机图标 -->
+        <symbol id="icon-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 2L11 13"/>
+            <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+        </symbol>
+        <!-- 停止图标 -->
+        <symbol id="icon-stop" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
+        </symbol>
+        <!-- 附件图标 -->
+        <symbol id="icon-attach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+        </symbol>
+        <!-- 刷新图标 -->
+        <symbol id="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 4v6h-6"/>
+            <path d="M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </symbol>
+        <!-- 设置图标 -->
+        <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </symbol>
+        <!-- 关闭图标 -->
+        <symbol id="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+        </symbol>
+    </svg>
+
+    <!-- 顶栏 -->
+    <div class="header">
+        <div class="header-title">
+            <span class="header-icon">🐱</span>
+            <span>招财</span>
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn" id="refreshBtn" title="刷新">
+                <svg><use href="#icon-refresh"/></svg>
+            </button>
+            <button class="icon-btn" id="settingsBtn" title="设置">
+                <svg><use href="#icon-settings"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 消息列表 -->
+    <div class="messages-container" id="messagesContainer">
+        <div class="messages" id="messages"></div>
+    </div>
+
+    <!-- 输入区 -->
+    <div class="input-area">
+        <!-- 附件预览区 -->
+        <div class="attachments-preview" id="attachmentsPreview"></div>
+        
+        <!-- 输入框容器 -->
+        <div class="input-box" id="inputBox">
+            <textarea 
+                id="messageInput" 
+                placeholder="输入消息... @ 引用文件"
+                rows="1"
+            ></textarea>
+            <button class="attach-btn" id="attachBtn" title="添加附件">
+                <svg><use href="#icon-attach"/></svg>
+            </button>
+        </div>
+        
+        <!-- 底部工具栏 -->
+        <div class="input-toolbar">
+            <div class="toolbar-left">
+                <select class="toolbar-select" id="modeSelect" title="执行模式">
+                    <option value="execute">执行模式</option>
+                    <option value="plan">计划模式</option>
+                </select>
+                <select class="toolbar-select" id="modelSelect" title="选择模型">
+                    <option value="default">默认模型</option>
+                </select>
+            </div>
+            <button class="send-btn" id="sendBtn" title="发送">
+                <svg class="send-icon"><use href="#icon-send"/></svg>
+                <svg class="stop-icon"><use href="#icon-stop"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 文件选择弹窗 -->
+    <div class="file-picker-overlay" id="filePickerOverlay">
+        <div class="file-picker">
+            <div class="file-picker-header">
+                <span>选择文件引用</span>
+                <button class="icon-btn" id="closeFilePicker">
+                    <svg><use href="#icon-close"/></svg>
+                </button>
+            </div>
+            <input type="text" class="file-picker-search" id="filePickerSearch" placeholder="搜索文件...">
+            <div class="file-picker-list" id="filePickerList"></div>
+        </div>
+    </div>
+
+    <script src="${scriptUri}"></script>
+</body>
+</html>

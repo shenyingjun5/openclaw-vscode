@@ -1,0 +1,145 @@
+{
+  "name": "openclaw",
+  "displayName": "OpenClaw",
+  "description": "OpenClaw AI Assistant for VS Code - Chat with AI, reference files with @, apply code changes directly",
+  "version": "0.1.0",
+  "publisher": "openclaw",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openclaw/openclaw-vscode"
+  },
+  "homepage": "https://github.com/openclaw/openclaw-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/openclaw/openclaw-vscode/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages",
+    "Snippets",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "assistant",
+    "openclaw",
+    "chat",
+    "copilot",
+    "code assistant",
+    "ai coding"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "icon": "media/icon.png",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "openclaw",
+          "title": "OpenClaw",
+          "icon": "media/chat.svg"
+        }
+      ]
+    },
+    "views": {
+      "openclaw": [
+        {
+          "type": "webview",
+          "id": "openclaw.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "openclaw.openChatPanel",
+        "title": "打开招财对话窗口",
+        "icon": "media/chat.svg"
+      },
+      {
+        "command": "openclaw.sendSelection",
+        "title": "发送选中代码到招财"
+      },
+      {
+        "command": "openclaw.sendFile",
+        "title": "发送文件到招财"
+      },
+      {
+        "command": "openclaw.togglePlanMode",
+        "title": "切换计划模式"
+      },
+      {
+        "command": "openclaw.newSession",
+        "title": "新建会话"
+      },
+      {
+        "command": "openclaw.clearChat",
+        "title": "清空聊天"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "openclaw.openChatPanel",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "openclaw.sendSelection",
+          "when": "editorHasSelection",
+          "group": "openclaw@1"
+        },
+        {
+          "command": "openclaw.sendFile",
+          "group": "openclaw@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenClaw",
+      "properties": {
+        "openclaw.gatewayUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:18789",
+          "description": "OpenClaw Gateway URL"
+        },
+        "openclaw.defaultSession": {
+          "type": "string",
+          "default": "main",
+          "description": "Default session ID"
+        },
+        "openclaw.planMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Plan Mode (AI creates plan before executing)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^2.22.0",
+    "canvas": "^3.2.1",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.1",
+    "ws": "^8.14.0"
+  }
+}
