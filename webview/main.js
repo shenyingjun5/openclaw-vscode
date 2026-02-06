@@ -432,7 +432,29 @@
     // 模型选择
     modelSelect.addEventListener('change', (e) => {
         vscode.postMessage({ type: 'setModel', model: e.target.value });
+        // 更新选中状态
+        if (window._modelData) {
+            window._modelData.forEach(m => m.selected = m.id === e.target.value);
+        }
+        // 收起后显示短名称
+        renderModelOptions(false);
     });
+
+    // 展开时显示完整名称，收起时显示短名称
+    modelSelect.addEventListener('focus', () => renderModelOptions(true));
+    modelSelect.addEventListener('blur', () => renderModelOptions(false));
+    modelSelect.addEventListener('mousedown', () => renderModelOptions(true));
+
+    // 渲染模型选项
+    function renderModelOptions(showFull) {
+        if (!window._modelData) return;
+        const currentValue = modelSelect.value;
+        modelSelect.innerHTML = window._modelData.map(m => {
+            const displayName = showFull ? m.fullName : m.shortName;
+            return `<option value="${m.id}" title="${m.fullName}" ${m.id === currentValue ? 'selected' : ''}>${displayName}</option>`;
+        }).join('');
+        modelSelect.title = window._modelData.find(m => m.id === currentValue)?.fullName || '';
+    }
 
     // 文件选择器
     closeFilePicker.addEventListener('click', hideFilePicker);
@@ -532,9 +554,15 @@
                 break;
                 
             case 'updateModels':
-                modelSelect.innerHTML = message.models.map(m => 
-                    `<option value="${m.id}" ${m.selected ? 'selected' : ''}>${m.name}</option>`
-                ).join('');
+                // 存储模型数据，用于动态切换显示
+                window._modelData = message.models.map(m => ({
+                    id: m.id,
+                    fullName: m.name,
+                    shortName: m.id === 'default' ? '默认模型' : (m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id),
+                    selected: m.selected
+                }));
+                // 初始显示短名称
+                renderModelOptions(false);
                 break;
                 
             case 'updatePlanMode':

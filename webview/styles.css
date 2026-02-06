@@ -400,11 +400,15 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-top: 6px;
+    gap: 8px;
 }
 
 .toolbar-left {
     display: flex;
     gap: 6px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .toolbar-select {
@@ -415,6 +419,20 @@ body {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     cursor: pointer;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#modeSelect {
+    flex-shrink: 0;
+    width: auto;
+}
+
+#modelSelect {
+    flex: 1;
+    min-width: 80px;
+    max-width: 200px;
+    text-overflow: ellipsis;
 }
 
 .toolbar-select:focus {
