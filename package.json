@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openclaw/openclaw-vscode"
+    "url": "https://github.com/shenyingjun5/openclaw-vscode"
   },
-  "homepage": "https://github.com/openclaw/openclaw-vscode#readme",
+  "homepage": "https://github.com/shenyingjun5/openclaw-vscode#readme",
   "bugs": {
-    "url": "https://github.com/openclaw/openclaw-vscode/issues"
+    "url": "https://github.com/shenyingjun5/openclaw-vscode/issues"
   },
   "engines": {
     "vscode": "^1.85.0"
