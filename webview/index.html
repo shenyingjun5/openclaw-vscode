@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,7 +17,7 @@
         </symbol>
         <!-- 停止图标 -->
         <symbol id="icon-stop" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="4" y="4" width="16" height="16" rx="2"/>
+            <rect x="6" y="6" width="12" height="12" rx="1"/>
         </symbol>
         <!-- 附件图标 -->
         <symbol id="icon-attach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -45,13 +45,12 @@
     <div class="header">
         <div class="header-title">
             <span class="header-icon">🐱</span>
-            <span>招财</span>
         </div>
         <div class="header-actions">
-            <button class="icon-btn" id="refreshBtn" title="刷新">
+            <button class="icon-btn" id="refreshBtn" data-i18n-title="refresh">
                 <svg><use href="#icon-refresh"/></svg>
             </button>
-            <button class="icon-btn" id="settingsBtn" title="设置">
+            <button class="icon-btn" id="settingsBtn" data-i18n-title="settings">
                 <svg><use href="#icon-settings"/></svg>
             </button>
         </div>
@@ -71,10 +70,10 @@
         <div class="input-box" id="inputBox">
             <textarea 
                 id="messageInput" 
-                placeholder="输入消息... @ 引用文件"
+                data-i18n-placeholder="sendPlaceholder"
                 rows="1"
             ></textarea>
-            <button class="attach-btn" id="attachBtn" title="添加附件">
+            <button class="attach-btn" id="attachBtn" data-i18n-title="attach">
                 <svg><use href="#icon-attach"/></svg>
             </button>
         </div>
@@ -82,15 +81,15 @@
         <!-- 底部工具栏 -->
         <div class="input-toolbar">
             <div class="toolbar-left">
-                <select class="toolbar-select" id="modeSelect" title="执行模式">
-                    <option value="execute">执行模式</option>
-                    <option value="plan">计划模式</option>
+                <select class="toolbar-select" id="modeSelect">
+                    <option value="execute" data-i18n="executeMode"></option>
+                    <option value="plan" data-i18n="planMode"></option>
                 </select>
-                <select class="toolbar-select" id="modelSelect" title="选择模型">
-                    <option value="default">默认模型</option>
+                <select class="toolbar-select" id="modelSelect">
+                    <option value="default" data-i18n="defaultModel"></option>
                 </select>
             </div>
-            <button class="send-btn" id="sendBtn" title="发送">
+            <button class="send-btn" id="sendBtn" data-i18n-title="send">
                 <svg class="send-icon"><use href="#icon-send"/></svg>
                 <svg class="stop-icon"><use href="#icon-stop"/></svg>
             </button>
@@ -101,12 +100,12 @@
     <div class="file-picker-overlay" id="filePickerOverlay">
         <div class="file-picker">
             <div class="file-picker-header">
-                <span>选择文件引用</span>
+                <span data-i18n="attach"></span>
                 <button class="icon-btn" id="closeFilePicker">
                     <svg><use href="#icon-close"/></svg>
                 </button>
             </div>
-            <input type="text" class="file-picker-search" id="filePickerSearch" placeholder="搜索文件...">
+            <input type="text" class="file-picker-search" id="filePickerSearch" data-i18n-placeholder="searchFiles">
             <div class="file-picker-list" id="filePickerList"></div>
         </div>
     </div>

@@ -1,14 +1,23 @@
-/* OpenClaw VSCode 插件样式 */
+/* OpenClaw VSCode Extension Styles */
 
 :root {
     --font-size-base: 12px;
     --font-size-small: 11px;
     --font-size-code: 11px;
     --font-size-header: 13px;
-    --message-padding: 8px 10px;
+    --message-padding: 10px 14px;
     --border-radius: 6px;
     --gap-small: 4px;
     --gap-medium: 8px;
+
+    /* User message colors */
+    --user-gradient-start: #6366F2;
+    --user-gradient-end: #8C5CF5;
+
+    /* Send button states */
+    --send-btn-inactive: #6b7280;
+    --send-btn-active: #22c55e;
+    --send-btn-stop: #991b1b;
 }
 
 * {
@@ -28,7 +37,7 @@ body {
     overflow: hidden;
 }
 
-/* 顶栏 */
+/* Header */
 .header {
     display: flex;
     justify-content: space-between;
@@ -48,7 +57,7 @@ body {
 }
 
 .header-icon {
-    font-size: 16px;
+    font-size: 18px;
 }
 
 .header-actions {
@@ -80,7 +89,7 @@ body {
     stroke: var(--vscode-foreground);
 }
 
-/* 消息列表 */
+/* Messages container */
 .messages-container {
     flex: 1;
     overflow-y: auto;
@@ -93,34 +102,73 @@ body {
     gap: var(--gap-medium);
 }
 
-/* 消息气泡 */
+/* Message bubble */
 .message {
     max-width: 95%;
     padding: var(--message-padding);
-    border-radius: var(--border-radius);
     word-wrap: break-word;
     line-height: 1.5;
 }
 
+/* User message - purple gradient */
 .message.user {
     align-self: flex-end;
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+    background: linear-gradient(135deg, var(--user-gradient-start) 0%, var(--user-gradient-end) 100%);
+    color: #ffffff;
+    border-radius: 18px 4px 18px 18px;
 }
 
+.message.user .message-text {
+    white-space: pre-wrap;
+}
+
+/* User message attachments */
+.message.user .message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.message.user .message-attachment {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-size: var(--font-size-small);
+}
+
+.message.user .message-attachment img {
+    max-width: 120px;
+    max-height: 80px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.message.user .message-attachment.file::before {
+    content: "📎";
+    margin-right: 2px;
+}
+
+/* Assistant message */
 .message.assistant {
     align-self: flex-start;
-    background: var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.1));
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(255, 255, 255, 0.1));
     border: 1px solid var(--vscode-panel-border);
+    border-radius: var(--border-radius);
 }
 
+/* Error message */
 .message.error {
     align-self: flex-start;
-    background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1));
+    background: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.1));
     border: 1px solid var(--vscode-inputValidation-errorBorder, #f44);
+    border-radius: var(--border-radius);
 }
 
-/* 工具调用 */
+/* Tool call */
 .tool-call {
     font-size: var(--font-size-small);
     padding: 4px 8px;
@@ -154,7 +202,7 @@ body {
     display: block;
 }
 
-/* Markdown 样式 */
+/* Markdown styles */
 .message.assistant h1,
 .message.assistant h2,
 .message.assistant h3,
@@ -165,12 +213,23 @@ body {
     font-weight: 600;
 }
 
-.message.assistant h1 { font-size: 15px; }
-.message.assistant h2 { font-size: 14px; }
-.message.assistant h3 { font-size: 13px; }
+.message.assistant h1 {
+    font-size: 15px;
+}
+
+.message.assistant h2 {
+    font-size: 14px;
+}
+
+.message.assistant h3 {
+    font-size: 13px;
+}
+
 .message.assistant h4,
 .message.assistant h5,
-.message.assistant h6 { font-size: 12px; }
+.message.assistant h6 {
+    font-size: 12px;
+}
 
 .message.assistant p {
     margin: 4px 0;
@@ -241,7 +300,7 @@ body {
     text-decoration: underline;
 }
 
-/* 思考中状态 */
+/* Thinking indicator */
 .thinking {
     display: flex;
     align-items: center;
@@ -264,16 +323,32 @@ body {
     animation: bounce 1.4s infinite ease-in-out;
 }
 
-.thinking-dots span:nth-child(1) { animation-delay: 0s; }
-.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
-.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes bounce {
-    0%, 80%, 100% { transform: translateY(0); }
-    40% { transform: translateY(-6px); }
+.thinking-dots span:nth-child(1) {
+    animation-delay: 0s;
 }
 
-/* 输入区 */
+.thinking-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.thinking-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes bounce {
+
+    0%,
+    80%,
+    100% {
+        transform: translateY(0);
+    }
+
+    40% {
+        transform: translateY(-6px);
+    }
+}
+
+/* Input area */
 .input-area {
     border-top: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBar-background);
@@ -281,7 +356,7 @@ body {
     flex-shrink: 0;
 }
 
-/* 附件预览区 */
+/* Attachments preview */
 .attachments-preview {
     display: flex;
     flex-wrap: wrap;
@@ -330,7 +405,7 @@ body {
     border-radius: 3px;
 }
 
-/* 输入框容器 */
+/* Input box */
 .input-box {
     position: relative;
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
@@ -394,7 +469,7 @@ body {
     stroke: var(--vscode-foreground);
 }
 
-/* 底部工具栏 */
+/* Bottom toolbar */
 .input-toolbar {
     display: flex;
     justify-content: space-between;
@@ -440,43 +515,51 @@ body {
     border-color: var(--vscode-focusBorder);
 }
 
+/* Send button - three states */
 .send-btn {
     width: 32px;
     height: 32px;
     border: none;
     border-radius: var(--border-radius);
-    background: var(--vscode-button-background);
+    background: var(--send-btn-inactive);
+    color: #ffffff;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: background 0.2s;
-}
-
-.send-btn:hover {
-    background: var(--vscode-button-hoverBackground);
-}
-
-.send-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+    flex-shrink: 0;
 }
 
 .send-btn svg {
-    width: 16px;
-    height: 16px;
-    stroke: var(--vscode-button-foreground);
+    width: 14px;
+    height: 14px;
+    stroke: #ffffff;
     fill: none;
 }
 
 .send-btn .stop-icon {
     display: none;
-    fill: var(--vscode-button-foreground);
+    fill: #ffffff;
     stroke: none;
 }
 
+/* Active state - has input */
+.send-btn.active {
+    background: var(--send-btn-active);
+}
+
+.send-btn.active:hover {
+    background: #16a34a;
+}
+
+/* Sending state - stop button */
 .send-btn.sending {
-    background: #c00;
+    background: var(--send-btn-stop);
+}
+
+.send-btn.sending:hover {
+    background: #7f1d1d;
 }
 
 .send-btn.sending .send-icon {
@@ -487,14 +570,14 @@ body {
     display: block;
 }
 
-/* 文件选择弹窗 */
+/* File picker modal */
 .file-picker-overlay {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0,0,0,0.5);
+    background: rgba(0, 0, 0, 0.5);
     display: none;
     align-items: center;
     justify-content: center;
@@ -570,7 +653,16 @@ body {
     white-space: nowrap;
 }
 
-/* 滚动条 */
+/* Directory items */
+.file-picker-item.directory {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.file-picker-item.directory:hover {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;

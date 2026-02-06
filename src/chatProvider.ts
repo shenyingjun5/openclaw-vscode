@@ -3,6 +3,55 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { GatewayClient } from './gateway';
 
+// i18n helper
+function getLocale(): string {
+    const lang = vscode.env.language;
+    return lang.startsWith('zh') ? 'zh' : 'en';
+}
+
+function t(key: string): string {
+    const locale = getLocale() as 'en' | 'zh';
+    const messages: { [key: string]: { en: string; zh: string } } = {
+        sendFailed: {
+            en: 'Send failed',
+            zh: '发送失败'
+        },
+        saveImageFailed: {
+            en: 'Failed to save image',
+            zh: '保存图片失败'
+        },
+        defaultModel: {
+            en: 'Default Model',
+            zh: '默认模型'
+        },
+        addAttachment: {
+            en: 'Add attachment',
+            zh: '添加附件'
+        },
+        noActiveEditor: {
+            en: 'No active editor',
+            zh: '没有活动的编辑器'
+        },
+        noSelection: {
+            en: 'No code selected',
+            zh: '没有选中任何代码'
+        },
+        newSession: {
+            en: 'New session',
+            zh: '新会话'
+        },
+        selectedCode: {
+            en: 'Selected code',
+            zh: '选中代码'
+        },
+        sentFile: {
+            en: 'Sent file',
+            zh: '发送文件'
+        }
+    };
+    return messages[key]?.[locale] || messages[key]?.['en'] || key;
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _sessionId: string;
@@ -33,7 +82,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         
         if (currentDir && currentDir !== this._notifiedWorkspaceDir) {
             this._notifiedWorkspaceDir = currentDir;
-            return `[当前工作目录: ${currentDir}]\n\n${content}`;
+            return `[Current workspace: ${currentDir}]\n\n${content}`;
         }
         
         return content;
@@ -59,6 +108,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
                 case 'ready':
+                    // Send locale to webview
+                    this._view?.webview.postMessage({
+                        type: 'setLocale',
+                        locale: vscode.env.language
+                    });
                     await this._loadHistory();
                     this._sendModels();
                     this._view?.webview.postMessage({ 
@@ -109,7 +163,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
                     
                 case 'setModel':
-                    // TODO: 实现模型切换
                     break;
             }
         });
@@ -141,10 +194,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 models
             });
         } catch (err) {
-            // 失败时发送默认模型
             this._view?.webview.postMessage({
                 type: 'updateModels',
-                models: [{ id: 'default', name: '默认模型', selected: true }]
+                models: [{ id: 'default', name: t('defaultModel'), selected: true }]
             });
         }
     }
@@ -157,7 +209,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         let finalMessage = this._buildMessageWithWorkspace(content);
         
         if (this._planMode) {
-            const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y'];
+            const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
             const isConfirm = confirmCommands.some(cmd => 
                 content.toLowerCase().trim() === cmd.toLowerCase()
             );
@@ -166,14 +218,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 finalMessage += `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 【计划模式 - 禁止直接执行】
+⚠️ [Plan Mode - Do Not Execute]
 
-你必须：
-1. 只输出计划，不调用任何工具
-2. 列出每个步骤的操作和影响
-3. 等用户说"执行"后才能调用工具
+You must:
+1. Output plan only, do not call any tools
+2. List each step and its impact
+3. Wait for user to say "execute" before calling tools
 
-违反此规则 = 任务失败
+Violation = Task failed
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
             }
         }
@@ -196,7 +248,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         } catch (err: any) {
             this._view?.webview.postMessage({
                 type: 'error',
-                content: `发送失败: ${err.message}`
+                content: `${t('sendFailed')}: ${err.message}`
             });
         } finally {
             this._isSending = false;
@@ -221,7 +273,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 messages
             });
         } catch (err) {
-            // 忽略
+            // Ignore
         }
     }
 
@@ -232,6 +284,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        // Get files
         const files = await vscode.workspace.findFiles(
             '**/*.{ts,tsx,js,jsx,py,go,rs,java,c,cpp,h,hpp,md,json,yaml,yml,toml,css,scss,html,vue,svelte,swift}',
             '**/node_modules/**',
@@ -243,17 +296,39 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return {
                 name: path.basename(f.fsPath),
                 path: f.fsPath,
-                relativePath
+                relativePath,
+                isDirectory: false
             };
         });
 
-        this._view?.webview.postMessage({ type: 'files', files: fileList });
+        // Extract unique directory paths from files
+        const dirSet = new Set<string>();
+        for (const f of files) {
+            const rel = vscode.workspace.asRelativePath(f);
+            const parts = rel.split('/');
+            let current = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+                current = current ? `${current}/${parts[i]}` : parts[i];
+                dirSet.add(current);
+            }
+        }
+
+        const dirList = Array.from(dirSet).slice(0, 30).map(d => ({
+            name: d.split('/').pop() || d,
+            path: path.join(workspaceFolders[0].uri.fsPath, d),
+            relativePath: d,
+            isDirectory: true
+        }));
+
+        // Combine: directories first, then files
+        const combined = [...dirList, ...fileList];
+        this._view?.webview.postMessage({ type: 'files', files: combined });
     }
 
     private async _handleSelectFile() {
         const files = await vscode.window.showOpenDialog({
             canSelectMany: true,
-            openLabel: '添加附件'
+            openLabel: t('addAttachment')
         });
         
         if (files) {
@@ -291,7 +366,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 path: filePath
             });
         } catch (err: any) {
-            vscode.window.showErrorMessage(`保存图片失败: ${err.message}`);
+            vscode.window.showErrorMessage(`${t('saveImageFailed')}: ${err.message}`);
         }
     }
 
@@ -304,7 +379,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._sessionId = `vscode-${Date.now()}`;
         this._notifiedWorkspaceDir = null;
         this._view?.webview.postMessage({ type: 'clearMessages' });
-        vscode.window.showInformationMessage(`新会话: ${this._sessionId}`);
+        vscode.window.showInformationMessage(`${t('newSession')}: ${this._sessionId}`);
     }
 
     public clearChat() {
@@ -314,7 +389,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     public async sendSelection() {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            vscode.window.showWarningMessage('没有活动的编辑器');
+            vscode.window.showWarningMessage(t('noActiveEditor'));
             return;
         }
 
@@ -322,19 +397,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const text = editor.document.getText(selection);
         
         if (!text) {
-            vscode.window.showWarningMessage('没有选中任何代码');
+            vscode.window.showWarningMessage(t('noSelection'));
             return;
         }
 
         const fileName = path.basename(editor.document.fileName);
         const lang = editor.document.languageId;
         
-        const content = `请分析这段代码:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
+        const content = `Please analyze this code:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
         
         this._view?.webview.postMessage({
             type: 'addMessage',
             role: 'user',
-            content: `[选中代码: ${fileName}]`
+            content: `[${t('selectedCode')}: ${fileName}]`
         });
         
         await this._sendMessage(content);
@@ -343,7 +418,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     public async sendFile() {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            vscode.window.showWarningMessage('没有活动的编辑器');
+            vscode.window.showWarningMessage(t('noActiveEditor'));
             return;
         }
 
@@ -351,12 +426,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const fileName = path.basename(editor.document.fileName);
         const lang = editor.document.languageId;
         
-        const content = `请分析这个文件:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
+        const content = `Please analyze this file:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
         
         this._view?.webview.postMessage({
             type: 'addMessage',
             role: 'user',
-            content: `[发送文件: ${fileName}]`
+            content: `[${t('sentFile')}: ${fileName}]`
         });
         
         await this._sendMessage(content);

@@ -1,0 +1,20 @@
+{
+    "thinking": "招财正在思考...",
+    "sendPlaceholder": "输入问题...",
+    "planMode": "计划模式",
+    "executeMode": "执行模式",
+    "defaultModel": "默认模型",
+    "settings": "设置",
+    "refresh": "刷新",
+    "attach": "添加附件",
+    "maxPanels": "已达最大并行会话数 (5)",
+    "cannotAllocate": "无法分配新的会话窗口",
+    "sendFailed": "发送失败",
+    "saveImageFailed": "保存图片失败",
+    "pasteImage": "粘贴图片",
+    "dragDropHint": "拖放文件到这里",
+    "searchFiles": "搜索文件...",
+    "close": "关闭",
+    "stop": "停止",
+    "send": "发送"
+}

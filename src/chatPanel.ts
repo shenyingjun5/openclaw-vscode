@@ -3,13 +3,88 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { GatewayClient } from './gateway';
 
+// i18n helper
+function getLocale(): string {
+    const lang = vscode.env.language;
+    return lang.startsWith('zh') ? 'zh' : 'en';
+}
+
+function t(key: string): string {
+    const locale = getLocale() as 'en' | 'zh';
+    const messages: { [key: string]: { en: string; zh: string } } = {
+        maxPanels: {
+            en: 'Maximum parallel sessions reached (5). Please close a window first.',
+            zh: '已达最大并行会话数 (5)，请关闭一个窗口后再试'
+        },
+        cannotAllocate: {
+            en: 'Cannot allocate new session window',
+            zh: '无法分配新的会话窗口'
+        },
+        sendFailed: {
+            en: 'Send failed',
+            zh: '发送失败'
+        },
+        saveImageFailed: {
+            en: 'Failed to save image',
+            zh: '保存图片失败'
+        },
+        defaultModel: {
+            en: 'Default Model',
+            zh: '默认模型'
+        },
+        addAttachment: {
+            en: 'Add attachment',
+            zh: '添加附件'
+        }
+    };
+    return messages[key]?.[locale] || messages[key]?.['en'] || key;
+}
+
+/**
+ * Panel session pool manager
+ * Manages up to 5 panel slots
+ */
+class PanelSessionPool {
+    private static instance: PanelSessionPool;
+    private activePanels = new Set<number>();
+    private static readonly MAX_PANELS = 5;
+
+    private constructor() {}
+
+    public static getInstance(): PanelSessionPool {
+        if (!PanelSessionPool.instance) {
+            PanelSessionPool.instance = new PanelSessionPool();
+        }
+        return PanelSessionPool.instance;
+    }
+
+    public allocate(): number | null {
+        for (let i = 1; i <= PanelSessionPool.MAX_PANELS; i++) {
+            if (!this.activePanels.has(i)) {
+                this.activePanels.add(i);
+                return i;
+            }
+        }
+        return null;
+    }
+
+    public release(id: number): void {
+        this.activePanels.delete(id);
+    }
+
+    public isFull(): boolean {
+        return this.activePanels.size >= PanelSessionPool.MAX_PANELS;
+    }
+}
+
 export class ChatPanel {
-    public static currentPanel: ChatPanel | undefined;
+    private static panels: Map<number, ChatPanel> = new Map();
     private static readonly viewType = 'openclaw.chatPanel';
 
     private readonly _panel: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private readonly _gateway: GatewayClient;
+    private readonly _panelId: number;
     private _sessionId: string;
     private _planMode: boolean = false;
     private _isSending: boolean = false;
@@ -18,15 +93,22 @@ export class ChatPanel {
 
     public static createOrShow(extensionUri: vscode.Uri, gateway: GatewayClient) {
         const column = vscode.ViewColumn.Beside;
+        const pool = PanelSessionPool.getInstance();
 
-        if (ChatPanel.currentPanel) {
-            ChatPanel.currentPanel._panel.reveal(column);
+        if (pool.isFull()) {
+            vscode.window.showWarningMessage(t('maxPanels'));
+            return;
+        }
+
+        const panelId = pool.allocate();
+        if (panelId === null) {
+            vscode.window.showWarningMessage(t('cannotAllocate'));
             return;
         }
 
         const panel = vscode.window.createWebviewPanel(
             ChatPanel.viewType,
-            '🐱 招财',
+            '🐱',
             column,
             {
                 enableScripts: true,
@@ -38,18 +120,21 @@ export class ChatPanel {
             }
         );
 
-        ChatPanel.currentPanel = new ChatPanel(panel, extensionUri, gateway);
+        const chatPanel = new ChatPanel(panel, extensionUri, gateway, panelId);
+        ChatPanel.panels.set(panelId, chatPanel);
     }
 
     private constructor(
         panel: vscode.WebviewPanel,
         extensionUri: vscode.Uri,
-        gateway: GatewayClient
+        gateway: GatewayClient,
+        panelId: number
     ) {
         this._panel = panel;
         this._extensionUri = extensionUri;
         this._gateway = gateway;
-        this._sessionId = 'vscode-panel';
+        this._panelId = panelId;
+        this._sessionId = `vscode-panel${panelId}`;
 
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
@@ -60,6 +145,11 @@ export class ChatPanel {
             async (data) => {
                 switch (data.type) {
                     case 'ready':
+                        // Send locale to webview
+                        this._panel.webview.postMessage({
+                            type: 'setLocale',
+                            locale: vscode.env.language
+                        });
                         await this._loadHistory();
                         this._sendModels();
                         this._panel.webview.postMessage({ 
@@ -110,7 +200,6 @@ export class ChatPanel {
                         break;
                         
                     case 'setModel':
-                        // TODO: 实现模型切换
                         break;
                 }
             },
@@ -138,7 +227,7 @@ export class ChatPanel {
         
         if (currentDir && currentDir !== this._notifiedWorkspaceDir) {
             this._notifiedWorkspaceDir = currentDir;
-            return `[当前工作目录: ${currentDir}]\n\n${content}`;
+            return `[Current workspace: ${currentDir}]\n\n${content}`;
         }
         
         return content;
@@ -173,7 +262,7 @@ export class ChatPanel {
         } catch (err) {
             this._panel.webview.postMessage({
                 type: 'updateModels',
-                models: [{ id: 'default', name: '默认模型', selected: true }]
+                models: [{ id: 'default', name: t('defaultModel'), selected: true }]
             });
         }
     }
@@ -186,7 +275,7 @@ export class ChatPanel {
         let finalMessage = this._buildMessageWithWorkspace(content);
         
         if (this._planMode) {
-            const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y'];
+            const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
             const isConfirm = confirmCommands.some(cmd =>
                 content.toLowerCase().trim() === cmd.toLowerCase()
             );
@@ -195,14 +284,14 @@ export class ChatPanel {
                 finalMessage += `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 【计划模式 - 禁止直接执行】
+⚠️ [Plan Mode - Do Not Execute]
 
-你必须：
-1. 只输出计划，不调用任何工具
-2. 列出每个步骤的操作和影响
-3. 等用户说"执行"后才能调用工具
+You must:
+1. Output plan only, do not call any tools
+2. List each step and its impact
+3. Wait for user to say "execute" before calling tools
 
-违反此规则 = 任务失败
+Violation = Task failed
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
             }
         }
@@ -225,7 +314,7 @@ export class ChatPanel {
         } catch (err: any) {
             this._panel.webview.postMessage({
                 type: 'error',
-                content: `发送失败: ${err.message}`
+                content: `${t('sendFailed')}: ${err.message}`
             });
         } finally {
             this._isSending = false;
@@ -249,7 +338,7 @@ export class ChatPanel {
                 messages
             });
         } catch (err) {
-            // 忽略
+            // Ignore
         }
     }
 
@@ -260,6 +349,7 @@ export class ChatPanel {
             return;
         }
 
+        // Get files
         const files = await vscode.workspace.findFiles(
             '**/*.{ts,tsx,js,jsx,py,go,rs,java,c,cpp,h,hpp,md,json,yaml,yml,toml,css,scss,html,vue,svelte,swift}',
             '**/node_modules/**',
@@ -271,17 +361,46 @@ export class ChatPanel {
             return {
                 name: path.basename(f.fsPath),
                 path: f.fsPath,
-                relativePath
+                relativePath,
+                isDirectory: false
             };
         });
 
-        this._panel.webview.postMessage({ type: 'files', files: fileList });
+        // Get directories
+        const dirs = await vscode.workspace.findFiles(
+            '**/',
+            '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.next/**}',
+            50
+        );
+
+        // Extract unique directory paths from files
+        const dirSet = new Set<string>();
+        for (const f of files) {
+            const rel = vscode.workspace.asRelativePath(f);
+            const parts = rel.split('/');
+            let current = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+                current = current ? `${current}/${parts[i]}` : parts[i];
+                dirSet.add(current);
+            }
+        }
+
+        const dirList = Array.from(dirSet).slice(0, 30).map(d => ({
+            name: d.split('/').pop() || d,
+            path: path.join(workspaceFolders[0].uri.fsPath, d),
+            relativePath: d,
+            isDirectory: true
+        }));
+
+        // Combine: directories first, then files
+        const combined = [...dirList, ...fileList];
+        this._panel.webview.postMessage({ type: 'files', files: combined });
     }
 
     private async _handleSelectFile() {
         const files = await vscode.window.showOpenDialog({
             canSelectMany: true,
-            openLabel: '添加附件'
+            openLabel: t('addAttachment')
         });
         
         if (files) {
@@ -319,12 +438,17 @@ export class ChatPanel {
                 path: filePath
             });
         } catch (err: any) {
-            vscode.window.showErrorMessage(`保存图片失败: ${err.message}`);
+            vscode.window.showErrorMessage(`${t('saveImageFailed')}: ${err.message}`);
         }
     }
 
     public dispose() {
-        ChatPanel.currentPanel = undefined;
+        ChatPanel.panels.delete(this._panelId);
+        PanelSessionPool.getInstance().release(this._panelId);
+        
+        // Delete session asynchronously
+        this._gateway.deleteSession(this._sessionId).catch(() => {});
+        
         this._panel.dispose();
         while (this._disposables.length) {
             const d = this._disposables.pop();

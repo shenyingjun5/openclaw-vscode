@@ -1,58 +1,98 @@
-# 安装指南
+# Installation Guide / 安装指南
 
-## 快速安装
+## Prerequisites / 前置要求
 
-### 1. 下载插件
+1. **OpenClaw** must be installed
+   - Install via npm: `npm install -g openclaw`
+   - Or via Homebrew: `brew install openclaw`
 
-从项目目录获取 `openclaw-0.1.0.vsix` 文件。
+2. **OpenClaw Gateway** must be running
+   - Start with: `openclaw gateway start`
+   - Default port: 18789
 
-### 2. 安装到 VS Code
+---
 
-**方法 A：图形界面安装**
-1. 打开 VS Code
-2. 按 `Cmd+Shift+P` (Mac) 或 `Ctrl+Shift+P` (Windows)
-3. 输入 `Extensions: Install from VSIX...`
-4. 选择 `openclaw-0.1.0.vsix` 文件
-5. 重启 VS Code
+1. **OpenClaw** 必须已安装
+   - 通过 npm 安装：`npm install -g openclaw`
+   - 或通过 Homebrew：`brew install openclaw`
 
-**方法 B：命令行安装**
+2. **OpenClaw Gateway** 必须正在运行
+   - 启动命令：`openclaw gateway start`
+   - 默认端口：18789
+
+---
+
+## Install from Open VSX / 从 Open VSX 安装
+
+1. Open VS Code or VSCodium
+2. Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
+3. Search for "OpenClaw"
+4. Click "Install"
+
+---
+
+1. 打开 VS Code 或 VSCodium
+2. 进入扩展 (Ctrl+Shift+X / Cmd+Shift+X)
+3. 搜索 "OpenClaw"
+4. 点击"安装"
+
+---
+
+## Install from VSIX / 从 VSIX 安装
+
+### Download / 下载
+
+Download the latest `.vsix` file from:
+- [Open VSX](https://open-vsx.org/extension/shenyingjun5/openclaw)
+- [GitHub Releases](https://github.com/openclaw/openclaw-vscode/releases)
+
+从以下位置下载最新的 `.vsix` 文件：
+- [Open VSX](https://open-vsx.org/extension/shenyingjun5/openclaw)
+- [GitHub Releases](https://github.com/openclaw/openclaw-vscode/releases)
+
+### Install / 安装
+
+**Via Command Palette / 通过命令面板:**
+1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
+2. Type "Extensions: Install from VSIX..."
+3. Select the downloaded `.vsix` file
+
+**Via CLI / 通过命令行:**
 ```bash
-code --install-extension openclaw-0.1.0.vsix
+code --install-extension openclaw-x.x.x.vsix
 ```
 
-### 3. 启动 OpenClaw
+---
 
+## Verify Installation / 验证安装
+
+1. Look for the OpenClaw icon in the activity bar (left sidebar)
+2. Look for the 🐱 button in the status bar (bottom)
+3. Click either to start chatting!
+
+---
+
+1. 在活动栏（左侧边栏）中查找 OpenClaw 图标
+2. 在状态栏（底部）中查找 🐱 按钮
+3. 点击任一按钮开始聊天！
+
+---
+
+## Troubleshooting / 故障排除
+
+### "OpenClaw: Connection failed" / "OpenClaw: 连接失败"
+
+Make sure OpenClaw Gateway is running:
 确保 OpenClaw Gateway 正在运行：
 
 ```bash
-# 检查状态
 openclaw gateway status
-
-# 如果没运行，启动它
 openclaw gateway start
 ```
 
-### 4. 开始使用
+### Extension not showing / 扩展未显示
 
-- 点击左侧活动栏的 🐱 图标打开聊天面板
-- 或点击右下角状态栏的「招财」
+Try reloading the window:
+尝试重新加载窗口：
 
----
-
-## 配置（可选）
-
-在 VS Code 设置中搜索 `openclaw`：
-
-- **Gateway 地址**: 默认 `http://127.0.0.1:18789`
-- **默认会话**: 默认 `main`
-- **计划模式**: 默认关闭
-
----
-
-## 卸载
-
-```bash
-code --uninstall-extension openclaw.openclaw
-```
-
-或在 VS Code 扩展面板中找到 OpenClaw，点击卸载。
+`Ctrl+Shift+P` → "Developer: Reload Window"

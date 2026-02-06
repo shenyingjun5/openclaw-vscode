@@ -1,0 +1,20 @@
+{
+    "thinking": "Thinking...",
+    "sendPlaceholder": "Ask a question...",
+    "planMode": "Plan Mode",
+    "executeMode": "Execute Mode",
+    "defaultModel": "Default Model",
+    "settings": "Settings",
+    "refresh": "Refresh",
+    "attach": "Attach file",
+    "maxPanels": "Maximum parallel sessions reached (5)",
+    "cannotAllocate": "Cannot allocate new session window",
+    "sendFailed": "Send failed",
+    "saveImageFailed": "Failed to save image",
+    "pasteImage": "Paste image",
+    "dragDropHint": "Drop files here",
+    "searchFiles": "Search files...",
+    "close": "Close",
+    "stop": "Stop",
+    "send": "Send"
+}

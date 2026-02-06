@@ -452,4 +452,48 @@ export class GatewayClient {
             });
         });
     }
+
+    /**
+     * 删除会话
+     */
+    public async deleteSession(sessionKey: string): Promise<void> {
+        const http = require('http');
+        
+        return new Promise((resolve) => {
+            const postData = JSON.stringify({
+                type: 'req',
+                id: `delete-${Date.now()}`,
+                method: 'sessions.delete',
+                params: {
+                    key: sessionKey,
+                    deleteTranscript: true
+                }
+            });
+
+            const options = {
+                hostname: '127.0.0.1',
+                port: 18789,
+                path: '/api/rpc',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            };
+
+            const req = http.request(options, (res: any) => {
+                res.on('data', () => {});
+                res.on('end', () => resolve());
+            });
+
+            req.on('error', () => resolve());
+            req.setTimeout(5000, () => {
+                req.destroy();
+                resolve();
+            });
+
+            req.write(postData);
+            req.end();
+        });
+    }
 }
