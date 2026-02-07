@@ -26,5 +26,19 @@
     "cmdWorkflow": "Show workflow",
     "cmdClear": "Clear chat",
     "cmdHelp": "Show help",
-    "triggeredSkill": "Triggered skill"
+    "triggeredSkill": "Triggered skill",
+    "diff.title": "File Changes",
+    "diff.files": "files",
+    "diff.action.create": "Create",
+    "diff.action.modify": "Modify",
+    "diff.action.delete": "Delete",
+    "diff.status.pending": "Pending",
+    "diff.status.applied": "Applied",
+    "diff.status.skipped": "Skipped",
+    "diff.acceptAll": "Accept All",
+    "diff.rejectAll": "Reject All",
+    "diff.tooltip.preview": "Click to preview diff",
+    "diff.tooltip.apply": "Apply changes",
+    "diff.tooltip.skip": "Skip changes",
+    "diff.allApplied": "All changes applied successfully"
 }

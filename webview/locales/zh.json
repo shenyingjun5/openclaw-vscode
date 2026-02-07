@@ -26,5 +26,19 @@
     "cmdWorkflow": "显示工作流",
     "cmdClear": "清空对话",
     "cmdHelp": "显示帮助",
-    "triggeredSkill": "已触发技能"
+    "triggeredSkill": "已触发技能",
+    "diff.title": "文件变更",
+    "diff.files": "个文件",
+    "diff.action.create": "创建",
+    "diff.action.modify": "修改",
+    "diff.action.delete": "删除",
+    "diff.status.pending": "待处理",
+    "diff.status.applied": "已应用",
+    "diff.status.skipped": "已跳过",
+    "diff.acceptAll": "全部接受",
+    "diff.rejectAll": "全部拒绝",
+    "diff.tooltip.preview": "点击预览差异",
+    "diff.tooltip.apply": "应用此变更",
+    "diff.tooltip.skip": "跳过此变更",
+    "diff.allApplied": "所有变更已应用成功"
 }

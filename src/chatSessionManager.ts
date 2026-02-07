@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { getProjectConfig, ProjectConfig, ProjectSkill, ProjectWorkflow } from './projectScanner';
 import { getSkillMatcher } from './skillMatcher';
 import { getMessageBuilder } from './messageBuilder';
+import { LanguageManager } from './languageManager';
 
 export interface ProjectStatusMessage {
     type: 'projectStatus';
@@ -178,8 +179,18 @@ export class ChatSessionManager {
             sessionId
         );
 
+        // 添加语言指令
+        const languageManager = LanguageManager.getInstance();
+        const languageInstruction = languageManager.getLanguageInstruction();
+        
+        let finalMessage = message;
+        if (languageInstruction) {
+            // 将语言指令添加到消息开头
+            finalMessage = `${languageInstruction}\n\n${message}`;
+        }
+
         return {
-            message,
+            message: finalMessage,
             triggeredSkill
         };
     }

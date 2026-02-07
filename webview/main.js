@@ -924,6 +924,12 @@
             case 'commandExecuted':
                 // Command was executed, nothing to show
                 break;
+
+            case 'addChange':
+                // 渲染变更卡片
+                hideThinking();
+                renderChangeCard(message.changeSet);
+                break;
         }
     });
     let projectStatus = {
@@ -970,3 +976,23 @@
     updateSendButtonState();
     vscode.postMessage({ type: 'ready' });
 })();
+
+    // ========== 变更卡片渲染 ==========
+
+    function renderChangeCard(changeSet) {
+        if (!changeSet || !changeSet.files || changeSet.files.length === 0) {
+            return;
+        }
+
+        // 创建变更卡片实例
+        const card = new ChangeCard(changeSet, vscode);
+        const cardElement = card.render();
+
+        // 添加到消息容器
+        messages.appendChild(cardElement);
+
+        // 滚动到底部
+        setTimeout(() => {
+            messages.scrollTop = messages.scrollHeight;
+        }, 100);
+    }

@@ -2,12 +2,20 @@ import * as vscode from 'vscode';
 import { ChatViewProvider } from './chatProvider';
 import { ChatPanel } from './chatPanel';
 import { GatewayClient } from './gateway';
+import { DiffProvider } from './diffProvider';
+import { LanguageManager } from './languageManager';
+import { ChangeManager } from './changeManager';
 
 let gatewayClient: GatewayClient;
 let chatProvider: ChatViewProvider;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('OpenClaw extension is now active!');
+
+    // 初始化服务
+    const languageManager = LanguageManager.getInstance();
+    const changeManager = ChangeManager.getInstance();
+    const diffProvider = DiffProvider.register(context);
 
     // 初始化 Gateway 客户端
     const config = vscode.workspace.getConfiguration('openclaw');

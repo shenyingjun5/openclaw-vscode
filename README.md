@@ -5,14 +5,58 @@ AI coding assistant for VS Code, powered by OpenClaw.
 ## Features
 
 - 💬 **Chat with AI** - Sidebar and popup panel chat interface
+- 🔄 **Diff Preview & Apply** - Visual preview and apply code changes (NEW in v0.2.0)
 - 🎯 **Skills Integration** - Auto-detect and use project skills
 - 📋 **Workflow Support** - Inject and execute project workflows
 - 📋 **Plan Mode / Execute Mode** - Control when AI can execute actions
 - 📎 **File & Image Attachments** - Attach code files and images to your messages
 - 🖼️ **Image Paste** - Paste images directly from clipboard
 - 🔄 **Multi-window Support** - Up to 5 parallel chat sessions
-- 🌍 **Multi-language** - English and Chinese UI based on system language
+- 🌍 **Multi-language** - Auto-detect system language for UI and AI responses
 - 🪟 **Windows Support** - Enhanced Windows compatibility (95% coverage)
+
+## What's New in v0.2.0
+
+### 🎉 Diff Preview & Apply Feature
+
+AI can now return structured file changes that you can preview and apply visually!
+
+**Change Card UI:**
+```
+┌─────────────────────────────────────────────────────────┐
+│ 📁 File Changes                       3 files           │
+├─────────────────────────────────────────────────────────┤
+│ 📝 src/Header.tsx (Modify)               ✓    ✗        │
+│ ➕ src/utils.ts (Create)                 ✓    ✗        │
+│ 🗑️ src/old.js (Delete)                   ✓    ✗        │
+├─────────────────────────────────────────────────────────┤
+│                 [ Accept All ]  [ Reject All ]          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- Click filename → Preview diff in VS Code native view
+- Click ✓ → Apply this file
+- Click ✗ → Skip this file
+- [Accept All] / [Reject All] → Batch operations
+- Auto-accept pending changes when sending new message
+
+### 🌍 Multi-language Support
+
+**New Setting:** `openclaw.aiOutputLanguage`
+- `auto` - Follow system language (default)
+- `zh-CN` - 简体中文
+- `en` - English
+- `ja` - 日本語
+- `ko` - 한국어
+
+AI responses automatically adapt to your selected language!
+
+### 🎨 UI Improvements
+- Compact icon buttons (✓ ✗) save space
+- Smart path truncation for long filenames
+- Status indicators (✅ applied, ⏭️ skipped)
+- Smooth animations for state changes
 
 ## What's New in v0.1.9
 
@@ -164,6 +208,7 @@ Open VS Code Settings (`Ctrl+,`) and search for "OpenClaw":
 - `openclaw.openclawPath` - Path to openclaw binary (auto-detected if empty)
 - `openclaw.defaultSession` - Default session ID (default: `main`)
 - `openclaw.planMode` - Default to Plan Mode (default: `false`)
+- `openclaw.aiOutputLanguage` - AI response language (default: `auto`) **NEW**
 
 ## Development
 

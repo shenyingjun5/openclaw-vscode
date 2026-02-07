@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## [0.2.0] - 2026-02-07
+
+### Added - Diff Preview & Apply Feature 🎉
+- **变更预览与应用功能** - AI 可以返回结构化的文件变更，支持预览和应用
+- **多语言支持** - 新增 `openclaw.aiOutputLanguage` 配置项（auto/zh-CN/en/ja/ko）
+- **自动语言检测** - UI 和 AI 输出自动跟随系统语言
+- **变更卡片 UI** - 紧凑型卡片设计，支持单文件/批量操作
+- **VS Code 原生 Diff 视图** - 点击文件名预览差异
+- **智能文件名省略** - 超长路径自动省略，hover 显示完整路径
+- **自动接受机制** - 发送新消息时自动接受待处理的变更
+- **状态管理** - 待处理/已应用/已跳过状态跟踪
+
+### New Components
+- `LanguageManager` - 语言管理（系统语言 + AI 输出语言）
+- `ChangeParser` - 解析 AI 返回的 JSON 变更数据
+- `ChangeManager` - 变更集状态管理和生命周期
+- `DiffProvider` - 虚拟文档提供者（VS Code Diff 视图）
+- `ChangeCard` - 变更卡片 UI 组件
+
+### UI/UX Improvements
+- 图标按钮（✓ 应用 / ✗ 跳过）节省空间
+- 支持 create/modify/delete 三种文件操作
+- 成功/失败动画反馈
+- 多语言文本自动适配
+
+### Technical
+- 添加 System Prompt 语言指令
+- WebSocket 消息类型扩展（previewDiff, applyFile, etc.）
+- 虚拟文档 scheme: `openclaw-diff:`
+- 变更数据格式：```changes ... ```
+
+### Configuration
+- `openclaw.aiOutputLanguage` - AI 输出语言（默认：auto）
+
 ## [0.1.9] - 2026-02-07
 
 ### Added

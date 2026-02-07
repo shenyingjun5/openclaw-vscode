@@ -4,6 +4,10 @@ import * as fs from 'fs';
 import { GatewayClient } from './gateway';
 import { ChatSessionManager } from './chatSessionManager';
 import { ProjectSkill } from './projectScanner';
+import { ChangeParser } from './changeParser';
+import { ChangeManager } from './changeManager';
+import { DiffProvider } from './diffProvider';
+import { LanguageManager } from './languageManager';
 
 // i18n helper
 function getLocale(): string {
@@ -223,6 +227,30 @@ export class ChatPanel {
                     case 'executeCommand':
                         await this._executeSlashCommand(data.command);
                         break;
+
+                    case 'previewDiff':
+                        await this._handlePreviewDiff(data.changeSetId, data.filePath);
+                        break;
+
+                    case 'applyFile':
+                        await this._handleApplyFile(data.changeSetId, data.filePath);
+                        break;
+
+                    case 'skipFile':
+                        this._handleSkipFile(data.changeSetId, data.filePath);
+                        break;
+
+                    case 'acceptAll':
+                        await this._handleAcceptAll(data.changeSetId);
+                        break;
+
+                    case 'rejectAll':
+                        this._handleRejectAll(data.changeSetId);
+                        break;
+
+                    case 'openFile':
+                        await this._handleOpenFile(data.filePath);
+                        break;
                 }
             },
             null,
@@ -247,10 +275,14 @@ export class ChatPanel {
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'webview', 'main.js')
         );
+        const changeCardScriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'webview', 'changeCard.js')
+        );
 
         html = html.replace(/\${cspSource}/g, webview.cspSource);
         html = html.replace(/\${stylesUri}/g, stylesUri.toString());
         html = html.replace(/\${scriptUri}/g, scriptUri.toString());
+        html = html.replace(/\${changeCardScriptUri}/g, changeCardScriptUri.toString());
 
         return html;
     }
@@ -267,6 +299,10 @@ export class ChatPanel {
         if (this._isSending) return;
 
         this._isSending = true;
+
+        // 自动接受待处理的变更集
+        const changeManager = ChangeManager.getInstance();
+        await changeManager.autoAcceptPending();
 
         // 解析 slash 命令
         let forceSkillName: string | undefined;
@@ -328,6 +364,21 @@ export class ChatPanel {
             replyContent = replyContent.replace(/<think>[\s\S]*?<\/think>/g, '');
             replyContent = replyContent.replace(/<\/?final>/g, '');
             replyContent = replyContent.trim();
+
+            // 检测变更数据
+            const changeSet = ChangeParser.parseFromResponse(replyContent);
+            
+            if (changeSet) {
+                // 注册变更集
+                const changeManager = ChangeManager.getInstance();
+                changeManager.registerChangeSet(changeSet);
+
+                // 发送变更数据到 webview
+                this._panel.webview.postMessage({
+                    type: 'addChange',
+                    changeSet: changeSet
+                });
+            }
 
             if (replyContent) {
                 this._panel.webview.postMessage({
@@ -438,6 +489,61 @@ export class ChatPanel {
         while (this._disposables.length) {
             const d = this._disposables.pop();
             if (d) d.dispose();
+        }
+    }
+
+    // ========== 变更管理方法 ==========
+
+    private async _handlePreviewDiff(changeSetId: string, filePath: string) {
+        const changeManager = ChangeManager.getInstance();
+        const changeSet = changeManager.getChangeSet(changeSetId);
+        
+        if (!changeSet) {
+            return;
+        }
+
+        const file = changeSet.files.find(f => f.path === filePath);
+        if (!file) {
+            return;
+        }
+
+        const diffProvider = DiffProvider.getInstance();
+        await diffProvider.showDiff(changeSetId, file);
+    }
+
+    private async _handleApplyFile(changeSetId: string, filePath: string) {
+        const changeManager = ChangeManager.getInstance();
+        await changeManager.applyFileChange(changeSetId, filePath);
+    }
+
+    private _handleSkipFile(changeSetId: string, filePath: string) {
+        const changeManager = ChangeManager.getInstance();
+        changeManager.skipFileChange(changeSetId, filePath);
+    }
+
+    private async _handleAcceptAll(changeSetId: string) {
+        const changeManager = ChangeManager.getInstance();
+        await changeManager.applyAllChanges(changeSetId);
+    }
+
+    private _handleRejectAll(changeSetId: string) {
+        const changeManager = ChangeManager.getInstance();
+        changeManager.rejectAllChanges(changeSetId);
+    }
+
+    private async _handleOpenFile(filePath: string) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+
+        const uri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+        
+        try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            await vscode.window.showTextDocument(doc);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Cannot open file: ${filePath}`);
         }
     }
 }

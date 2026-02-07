@@ -2,7 +2,7 @@
   "name": "openclaw",
   "displayName": "OpenClaw",
   "description": "OpenClaw AI Assistant for VS Code - Chat with AI, reference files with @, apply code changes directly",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
@@ -126,6 +126,19 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Plan Mode (AI creates plan before executing)"
+        },
+        "openclaw.aiOutputLanguage": {
+          "type": "string",
+          "enum": ["auto", "zh-CN", "en", "ja", "ko"],
+          "enumDescriptions": [
+            "Follow system language",
+            "简体中文 (Simplified Chinese)",
+            "English",
+            "日本語 (Japanese)",
+            "한국어 (Korean)"
+          ],
+          "default": "auto",
+          "description": "Language for AI responses"
         }
       }
     }

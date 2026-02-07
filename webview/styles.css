@@ -882,3 +882,271 @@ body {
     color: var(--vscode-descriptionForeground);
     font-size: var(--font-size-small);
 }
+/* ========================================
+   Change Card Styles (Diff Preview)
+   ======================================== */
+
+.change-card {
+    margin: 12px 0;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-editor-background);
+    overflow: hidden;
+    animation: slide-down 0.3s ease-out;
+}
+
+.change-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--vscode-sideBar-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.change-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+.change-icon {
+    font-size: 16px;
+}
+
+.change-count {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.change-count .applied-count {
+    color: var(--vscode-charts-green);
+    font-weight: 600;
+}
+
+.change-files {
+    /* No extra padding, each file has its own */
+}
+
+.change-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    min-height: 36px;
+    border-bottom: 1px solid var(--vscode-widget-border);
+    transition: background 0.15s;
+}
+
+.change-file:last-child {
+    border-bottom: none;
+}
+
+.change-file:hover .file-info {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.file-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 6px;
+    margin: -4px -6px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.file-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 13px;
+    color: var(--vscode-foreground);
+}
+
+.file-action {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.8;
+}
+
+.file-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.file-actions .icon-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--vscode-input-border);
+    background: transparent;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    color: var(--vscode-foreground);
+}
+
+.file-actions .icon-btn:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.file-actions .icon-btn.apply:hover {
+    border-color: var(--vscode-charts-green);
+    color: var(--vscode-charts-green);
+}
+
+.file-actions .icon-btn.skip:hover {
+    border-color: var(--vscode-charts-red);
+    color: var(--vscode-charts-red);
+}
+
+.file-actions .icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.file-actions .status-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+
+.file-actions .status-icon.applied {
+    color: var(--vscode-charts-green);
+}
+
+.file-actions .status-icon.skipped {
+    opacity: 0.5;
+}
+
+.change-footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-top: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+}
+
+.batch-btn {
+    padding: 6px 16px;
+    min-width: 100px;
+    height: 28px;
+    border: 1px solid var(--vscode-button-border);
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+}
+
+.batch-btn.accept {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.batch-btn.accept:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.batch-btn.reject {
+    background: transparent;
+    color: var(--vscode-foreground);
+}
+
+.batch-btn.reject:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.batch-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* File status states */
+.change-file.applied {
+    animation: apply-success 0.3s ease-out;
+}
+
+.change-file.skipped {
+    opacity: 0.5;
+}
+
+.change-file.skipped .file-info {
+    cursor: default;
+}
+
+/* Animations */
+@keyframes slide-down {
+    from {
+        max-height: 0;
+        opacity: 0;
+    }
+    to {
+        max-height: 500px;
+        opacity: 1;
+    }
+}
+
+@keyframes apply-success {
+    0% {
+        transform: scale(1);
+        background: transparent;
+    }
+    50% {
+        transform: scale(1.02);
+        background: rgba(0, 255, 0, 0.1);
+    }
+    100% {
+        transform: scale(1);
+        background: transparent;
+    }
+}
+
+/* Success message */
+.change-success {
+    margin: 8px 12px;
+    padding: 8px 12px;
+    background: rgba(0, 255, 0, 0.1);
+    border-left: 3px solid var(--vscode-charts-green);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--vscode-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.change-success-icon {
+    font-size: 16px;
+}
