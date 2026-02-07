@@ -3,3 +3,11 @@ node_modules/
 *.vsix
 .vscode-test/
 .ovsx-token
+
+# Temporary files
+*.py
+*.orig
+*.broken
+*.broken2
+.DS_Store
+patch.txt
