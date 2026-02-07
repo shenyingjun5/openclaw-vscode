@@ -12,9 +12,10 @@ export function activate(context: vscode.ExtensionContext) {
     // 初始化 Gateway 客户端
     const config = vscode.workspace.getConfiguration('openclaw');
     const gatewayUrl = config.get<string>('gatewayUrl') || 'http://127.0.0.1:18789';
-    
-    gatewayClient = new GatewayClient(gatewayUrl);
-    
+    const openclawPath = config.get<string>('openclawPath') || '';
+
+    gatewayClient = new GatewayClient(gatewayUrl, openclawPath || undefined);
+
     // 注册 Chat View Provider（侧边栏）
     chatProvider = new ChatViewProvider(context.extensionUri, gatewayClient);
     context.subscriptions.push(
@@ -57,7 +58,7 @@ function togglePlanMode() {
     const config = vscode.workspace.getConfiguration('openclaw');
     const current = config.get<boolean>('planMode') || false;
     config.update('planMode', !current, vscode.ConfigurationTarget.Global);
-    
+
     vscode.window.showInformationMessage(`计划模式: ${!current ? '开启' : '关闭'}`);
     chatProvider.updatePlanMode(!current);
 }

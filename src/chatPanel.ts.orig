@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { GatewayClient } from './gateway';
-import { ChatSessionManager } from './chatSessionManager';
-import { ProjectSkill } from './projectScanner';
 
 // i18n helper
 function getLocale(): string {
@@ -90,7 +88,7 @@ export class ChatPanel {
     private _sessionId: string;
     private _planMode: boolean = false;
     private _isSending: boolean = false;
-    private _sessionManager: ChatSessionManager;
+    private _notifiedWorkspaceDir: string | null = null;
     private _disposables: vscode.Disposable[] = [];
 
     public static createOrShow(extensionUri: vscode.Uri, gateway: GatewayClient) {
@@ -141,13 +139,7 @@ export class ChatPanel {
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
 
-        // 初始化 SessionManager
-        this._sessionManager = new ChatSessionManager(extensionUri);
-
         this._panel.webview.html = this._getHtmlContent();
-
-        // Auto-scan project
-        this._sessionManager.initProjectConfig();
 
         this._panel.webview.onDidReceiveMessage(
             async (data) => {
@@ -160,7 +152,6 @@ export class ChatPanel {
                         });
                         await this._loadHistory();
                         this._sendModels();
-                        this._sendProjectStatus();
                         this._panel.webview.postMessage({ 
                             type: 'updatePlanMode', 
                             enabled: this._planMode 
@@ -210,19 +201,6 @@ export class ChatPanel {
                         
                     case 'setModel':
                         break;
-                        
-                    case 'initProject':
-                        await this._sessionManager.initProjectConfig(true);
-                        this._sendProjectStatus();
-                        break;
-                        
-                    case 'listSkills':
-                        this._sendSkillsList();
-                        break;
-                        
-                    case 'executeCommand':
-                        await this._executeSlashCommand(data.command);
-                        break;
                 }
             },
             null,
@@ -234,6 +212,25 @@ export class ChatPanel {
             null,
             this._disposables
         );
+    }
+
+    private _getWorkspaceDir(): string | null {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            return workspaceFolders[0].uri.fsPath;
+        }
+        return null;
+    }
+
+    private _buildMessageWithWorkspace(content: string): string {
+        const currentDir = this._getWorkspaceDir();
+        
+        if (currentDir && currentDir !== this._notifiedWorkspaceDir) {
+            this._notifiedWorkspaceDir = currentDir;
+            return `[Current workspace: ${currentDir}]\n\n${content}`;
+        }
+        
+        return content;
     }
 
     private _getHtmlContent(): string {
@@ -256,11 +253,18 @@ export class ChatPanel {
     }
 
     private async _sendModels() {
-        const models = await this._sessionManager.getModels(this._gateway);
-        this._panel.webview.postMessage({
-            type: 'updateModels',
-            models
-        });
+        try {
+            const { models } = await this._gateway.getModels();
+            this._panel.webview.postMessage({
+                type: 'updateModels',
+                models
+            });
+        } catch (err) {
+            this._panel.webview.postMessage({
+                type: 'updateModels',
+                models: [{ id: 'default', name: t('defaultModel'), selected: true }]
+            });
+        }
     }
 
     private async _sendMessage(content: string) {
@@ -268,48 +272,8 @@ export class ChatPanel {
 
         this._isSending = true;
 
-        // 解析 slash 命令
-        let forceSkillName: string | undefined;
-        let forceWorkflow = false;
-        let actualContent = content;
-
-        const slashMatch = content.match(/^\/(\S+)\s*(.*)/);
-        if (slashMatch) {
-            const prefix = slashMatch[1];
-            const rest = slashMatch[2];
-
-            if (prefix.startsWith('.')) {
-                // Force workflow
-                forceWorkflow = true;
-                actualContent = rest;
-            } else {
-                // Try as skill name
-                forceSkillName = prefix;
-                actualContent = rest;
-            }
-        }
-
-        // 使用 SessionManager 构建消息
-        const { message: finalMessage, triggeredSkill } = this._sessionManager.buildMessage(
-            actualContent,
-            this._sessionId,
-            forceSkillName,
-            forceWorkflow
-        );
-
-        // 通知 UI 触发的技能
-        if (triggeredSkill) {
-            this._panel.webview.postMessage({
-                type: 'skillTriggered',
-                skill: {
-                    name: triggeredSkill.name,
-                    trigger: forceSkillName ? '/' + triggeredSkill.name : triggeredSkill.triggers[0]
-                }
-            });
-        }
-
-        // Plan Mode 后缀
-        let messageToSend = finalMessage;
+        let finalMessage = this._buildMessageWithWorkspace(content);
+        
         if (this._planMode) {
             const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
             const isConfirm = confirmCommands.some(cmd =>
@@ -317,12 +281,23 @@ export class ChatPanel {
             );
 
             if (!isConfirm) {
-                messageToSend += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n⚠️ [Plan Mode - Do Not Execute]\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say \"execute\" before calling tools\n\nViolation = Task failed\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                finalMessage += `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ [Plan Mode - Do Not Execute]
+
+You must:
+1. Output plan only, do not call any tools
+2. List each step and its impact
+3. Wait for user to say "execute" before calling tools
+
+Violation = Task failed
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
             }
         }
 
         try {
-            const reply = await this._gateway.sendMessage(this._sessionId, messageToSend);
+            const reply = await this._gateway.sendMessage(this._sessionId, finalMessage);
 
             let replyContent = reply.content;
             replyContent = replyContent.replace(/<think>[\s\S]*?<\/think>/g, '');
@@ -348,26 +323,94 @@ export class ChatPanel {
     }
 
     private async _loadHistory() {
-        const messages = await this._sessionManager.loadHistory(this._gateway, this._sessionId);
-        this._panel.webview.postMessage({
-            type: 'loadHistory',
-            messages
-        });
+        try {
+            const history = await this._gateway.getHistory(this._sessionId);
+            const messages = history.map(msg => {
+                let content = msg.content;
+                content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
+                content = content.replace(/<\/?final>/g, '');
+                content = content.trim();
+                return { role: msg.role, content };
+            }).filter(m => m.content);
+
+            this._panel.webview.postMessage({
+                type: 'loadHistory',
+                messages
+            });
+        } catch (err) {
+            // Ignore
+        }
     }
 
     private async _handleGetFiles() {
-        const files = await this._sessionManager.getWorkspaceFiles();
-        this._panel.webview.postMessage({ type: 'files', files });
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            this._panel.webview.postMessage({ type: 'files', files: [] });
+            return;
+        }
+
+        // Get files
+        const files = await vscode.workspace.findFiles(
+            '**/*.{ts,tsx,js,jsx,py,go,rs,java,c,cpp,h,hpp,md,json,yaml,yml,toml,css,scss,html,vue,svelte,swift}',
+            '**/node_modules/**',
+            100
+        );
+
+        const fileList = files.map(f => {
+            const relativePath = vscode.workspace.asRelativePath(f);
+            return {
+                name: path.basename(f.fsPath),
+                path: f.fsPath,
+                relativePath,
+                isDirectory: false
+            };
+        });
+
+        // Get directories
+        const dirs = await vscode.workspace.findFiles(
+            '**/',
+            '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.next/**}',
+            50
+        );
+
+        // Extract unique directory paths from files
+        const dirSet = new Set<string>();
+        for (const f of files) {
+            const rel = vscode.workspace.asRelativePath(f);
+            const parts = rel.split('/');
+            let current = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+                current = current ? `${current}/${parts[i]}` : parts[i];
+                dirSet.add(current);
+            }
+        }
+
+        const dirList = Array.from(dirSet).slice(0, 30).map(d => ({
+            name: d.split('/').pop() || d,
+            path: path.join(workspaceFolders[0].uri.fsPath, d),
+            relativePath: d,
+            isDirectory: true
+        }));
+
+        // Combine: directories first, then files
+        const combined = [...dirList, ...fileList];
+        this._panel.webview.postMessage({ type: 'files', files: combined });
     }
 
     private async _handleSelectFile() {
-        const files = await this._sessionManager.handleFileSelection();
-        for (const file of files) {
-            this._panel.webview.postMessage({
-                type: 'fileSelected',
-                name: file.name,
-                path: file.path
-            });
+        const files = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            openLabel: t('addAttachment')
+        });
+        
+        if (files) {
+            for (const file of files) {
+                this._panel.webview.postMessage({
+                    type: 'fileSelected',
+                    name: path.basename(file.fsPath),
+                    path: file.fsPath
+                });
+            }
         }
     }
 
@@ -382,54 +425,26 @@ export class ChatPanel {
     }
 
     private async _saveImage(base64Data: string, name: string) {
-        const result = await this._sessionManager.saveImage(base64Data, name);
-        if (result) {
+        try {
+            const tmpDir = require('os').tmpdir();
+            const filePath = path.join(tmpDir, name);
+            const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+            const buffer = Buffer.from(base64, 'base64');
+            fs.writeFileSync(filePath, buffer);
+
             this._panel.webview.postMessage({
                 type: 'fileSaved',
-                name: result.name,
-                path: result.path
+                name,
+                path: filePath
             });
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`${t('saveImageFailed')}: ${err.message}`);
         }
-    }
-
-    private _sendProjectStatus() {
-        const status = this._sessionManager.getProjectStatus();
-        this._panel.webview.postMessage(status);
-    }
-
-    private _sendSkillsList() {
-        const message = this._sessionManager.getSkillsList(t);
-        if (message) {
-            this._panel.webview.postMessage(message);
-        }
-    }
-
-    private async _executeSlashCommand(command: string) {
-        switch (command) {
-            case 'init':
-                await this._sessionManager.initProjectConfig(true);
-                this._sendSkillsList();
-                break;
-            case 'skills':
-                this._sendSkillsList();
-                break;
-            case 'workflow':
-                const workflowMessage = this._sessionManager.getWorkflowsList();
-                this._panel.webview.postMessage(workflowMessage);
-                break;
-            case 'clear':
-                this._panel.webview.postMessage({ type: 'clearMessages' });
-                break;
-        }
-        this._panel.webview.postMessage({ type: 'commandExecuted' });
     }
 
     public dispose() {
         ChatPanel.panels.delete(this._panelId);
         PanelSessionPool.getInstance().release(this._panelId);
-        
-        // Reset session manager
-        this._sessionManager.resetSession(this._sessionId);
         
         // Delete session asynchronously
         this._gateway.deleteSession(this._sessionId).catch(() => {});

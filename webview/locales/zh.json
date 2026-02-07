@@ -14,7 +14,17 @@
     "pasteImage": "粘贴图片",
     "dragDropHint": "拖放文件到这里",
     "searchFiles": "搜索文件...",
+    "searchCommands": "搜索命令或技能...",
     "close": "关闭",
     "stop": "停止",
-    "send": "发送"
+    "send": "发送",
+    "commands": "命令",
+    "skills": "技能",
+    "workflow": "工作流",
+    "cmdInit": "重新扫描项目",
+    "cmdSkills": "列出所有技能",
+    "cmdWorkflow": "显示工作流",
+    "cmdClear": "清空对话",
+    "cmdHelp": "显示帮助",
+    "triggeredSkill": "已触发技能"
 }

@@ -14,7 +14,17 @@
     "pasteImage": "Paste image",
     "dragDropHint": "Drop files here",
     "searchFiles": "Search files...",
+    "searchCommands": "Search commands or skills...",
     "close": "Close",
     "stop": "Stop",
-    "send": "Send"
+    "send": "Send",
+    "commands": "Commands",
+    "skills": "Skills",
+    "workflow": "Workflow",
+    "cmdInit": "Rescan project",
+    "cmdSkills": "List all skills",
+    "cmdWorkflow": "Show workflow",
+    "cmdClear": "Clear chat",
+    "cmdHelp": "Show help",
+    "triggeredSkill": "Triggered skill"
 }

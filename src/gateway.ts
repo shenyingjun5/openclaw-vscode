@@ -28,23 +28,135 @@ export class GatewayClient {
     private _messageCallbacks: MessageCallback[] = [];
     private _currentProcess: ChildProcess | null = null;
 
-    constructor(baseUrl: string) {
+    constructor(baseUrl: string, customPath?: string) {
         // baseUrl 暂时不用，直接调用 CLI
         // 尝试常见的 openclaw 路径
-        this._openclawPath = this._findOpenclawPath();
+        this._openclawPath = this._findOpenclawPath(customPath);
     }
 
-    private _findOpenclawPath(): string {
-        // macOS homebrew 路径
-        const possiblePaths = [
-            '/opt/homebrew/bin/openclaw',
-            '/usr/local/bin/openclaw',
-            '/usr/bin/openclaw',
-            'openclaw'  // 依赖 PATH
-        ];
-        
-        // 简单返回第一个，实际执行时会验证
-        return possiblePaths[0];
+    private _findOpenclawPath(customPath?: string): string {
+        // 优先使用用户自定义路径
+        if (customPath && fs.existsSync(customPath)) {
+            return customPath;
+        }
+
+        const isWindows = process.platform === 'win32';
+        const isMac = process.platform === 'darwin';
+
+        let possiblePaths: string[];
+
+        if (isWindows) {
+            const appData = process.env.APPDATA || '';
+            const localAppData = process.env.LOCALAPPDATA || '';
+            const userProfile = process.env.USERPROFILE || '';
+            const programFiles = process.env.PROGRAMFILES || '';
+            const programFilesX86 = process.env['PROGRAMFILES(X86)'] || '';
+            
+            // 获取 npm prefix（实际安装路径）
+            const npmPrefix = this._getNpmPrefix();
+            
+            possiblePaths = [
+                // npm global install (使用实际 npm prefix)
+                npmPrefix ? path.join(npmPrefix, 'openclaw.cmd') : '',
+                npmPrefix ? path.join(npmPrefix, 'openclaw') : '',
+                path.join(appData, 'npm', 'openclaw.cmd'),
+                path.join(userProfile, 'AppData', 'Roaming', 'npm', 'openclaw.cmd'),
+                
+                // scoop
+                path.join(localAppData, 'Programs', 'openclaw', 'openclaw.exe'),
+                path.join(userProfile, 'scoop', 'shims', 'openclaw.cmd'),
+                path.join(userProfile, 'scoop', 'shims', 'openclaw.exe'),
+                
+                // chocolatey
+                path.join('C:\\ProgramData', 'chocolatey', 'bin', 'openclaw.exe'),
+                path.join('C:\\ProgramData', 'chocolatey', 'bin', 'openclaw.cmd'),
+                
+                // winget / msi 安装
+                path.join(programFiles, 'OpenClaw', 'openclaw.exe'),
+                path.join(programFilesX86, 'OpenClaw', 'openclaw.exe'),
+                path.join(localAppData, 'Programs', 'OpenClaw', 'openclaw.exe'),
+            ].filter(Boolean);
+        } else if (isMac) {
+            possiblePaths = [
+                '/opt/homebrew/bin/openclaw',
+                '/usr/local/bin/openclaw',
+                '/usr/bin/openclaw',
+            ];
+        } else {
+            // Linux
+            possiblePaths = [
+                '/usr/local/bin/openclaw',
+                '/usr/bin/openclaw',
+                path.join(os.homedir(), '.local', 'bin', 'openclaw'),
+            ];
+        }
+
+        // 逐个验证，返回第一个存在的路径
+        for (const p of possiblePaths) {
+            if (p && fs.existsSync(p)) {
+                return p;
+            }
+        }
+
+        // 兜底：依赖系统 PATH
+        return 'openclaw';
+    }
+
+    /**
+     * 获取 npm 全局安装前缀路径（Windows 专用）
+     */
+    private _getNpmPrefix(): string | null {
+        try {
+            const { execSync } = require('child_process');
+            const result = execSync('npm config get prefix', {
+                encoding: 'utf-8',
+                timeout: 3000,
+                windowsHide: true
+            });
+            return result.trim();
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * 获取跨平台 spawn 环境变量
+     */
+    private _getSpawnEnv(): NodeJS.ProcessEnv {
+        const isWindows = process.platform === 'win32';
+
+        if (isWindows) {
+            // Windows: 不修改 PATH，直接使用系统 PATH
+            return { ...process.env };
+        }
+
+        // macOS / Linux: 添加常见安装路径
+        const extraPaths = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin';
+        return {
+            ...process.env,
+            PATH: extraPaths + ':' + (process.env.PATH || '')
+        };
+    }
+
+    /**
+     * 获取正确的 spawn 命令（Windows .cmd 文件需要特殊处理）
+     */
+    private _getSpawnCommand(args: string[]): { cmd: string; args: string[] } {
+        const isWindows = process.platform === 'win32';
+        const isCmdFile = this._openclawPath.endsWith('.cmd');
+
+        if (isWindows && isCmdFile) {
+            // Windows .cmd 文件需要通过 cmd.exe /c 执行
+            return {
+                cmd: 'cmd.exe',
+                args: ['/c', this._openclawPath, ...args]
+            };
+        }
+
+        return {
+            cmd: this._openclawPath,
+            args: args
+        };
     }
 
     public async connect(): Promise<void> {
@@ -82,7 +194,7 @@ export class GatewayClient {
      * 发送消息并获取回复
      */
     public async sendMessage(
-        sessionId: string, 
+        sessionId: string,
         message: string,
         onStream?: StreamCallback
     ): Promise<Message> {
@@ -95,11 +207,9 @@ export class GatewayClient {
                 '--timeout', '300'
             ];
 
-            const proc = spawn(this._openclawPath, args, {
-                env: {
-                    ...process.env,
-                    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
-                }
+            const spawnCmd = this._getSpawnCommand(args);
+            const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
+                env: this._getSpawnEnv()
             });
 
             this._currentProcess = proc;
@@ -110,7 +220,7 @@ export class GatewayClient {
             proc.stdout?.on('data', (data: Buffer) => {
                 const chunk = data.toString();
                 stdout += chunk;
-                
+
                 // 流式输出
                 if (onStream) {
                     onStream(chunk, false);
@@ -132,7 +242,7 @@ export class GatewayClient {
                 // 解析 JSON 输出
                 try {
                     const result = this._parseOutput(stdout);
-                    
+
                     // 从 openclaw agent --json 输出中提取文本
                     let content = '';
                     if (result.result?.payloads) {
@@ -154,7 +264,7 @@ export class GatewayClient {
                     } else if (result.content) {
                         content = result.content;
                     }
-                    
+
                     const assistantMessage: Message = {
                         role: 'assistant',
                         content: content || '(无回复)',
@@ -163,7 +273,7 @@ export class GatewayClient {
 
                     // 通知回调
                     this._messageCallbacks.forEach(cb => cb(assistantMessage));
-                    
+
                     if (onStream) {
                         onStream('', true);
                     }
@@ -216,11 +326,9 @@ export class GatewayClient {
      */
     public async getSessions(): Promise<any[]> {
         return new Promise((resolve, reject) => {
-            const proc = spawn(this._openclawPath, ['sessions', 'list', '--json'], {
-                env: {
-                    ...process.env,
-                    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
-                }
+            const spawnCmd = this._getSpawnCommand(['sessions', 'list', '--json']);
+            const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
+                env: this._getSpawnEnv()
             });
 
             let stdout = '';
@@ -249,15 +357,13 @@ export class GatewayClient {
      */
     public async getMessages(sessionId: string): Promise<Message[]> {
         return new Promise((resolve, reject) => {
-            const proc = spawn(this._openclawPath, [
+            const spawnCmd = this._getSpawnCommand([
                 'sessions', 'history',
                 '--session', sessionId,
                 '--json'
-            ], {
-                env: {
-                    ...process.env,
-                    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
-                }
+            ]);
+            const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
+                env: this._getSpawnEnv()
             });
 
             let stdout = '';
@@ -288,11 +394,9 @@ export class GatewayClient {
 
     private async _checkOpenclawAvailable(): Promise<void> {
         return new Promise((resolve, reject) => {
-            const proc = spawn(this._openclawPath, ['--version'], {
-                env: {
-                    ...process.env,
-                    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
-                }
+            const spawnCmd = this._getSpawnCommand(['--version']);
+            const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
+                env: this._getSpawnEnv()
             });
 
             proc.on('close', (code) => {
@@ -313,7 +417,7 @@ export class GatewayClient {
         // 找到 JSON 开始位置（第一个 { 开头的行）
         const lines = output.split('\n');
         let jsonStartIndex = -1;
-        
+
         for (let i = 0; i < lines.length; i++) {
             const trimmed = lines[i].trim();
             if (trimmed.startsWith('{')) {
@@ -321,7 +425,7 @@ export class GatewayClient {
                 break;
             }
         }
-        
+
         if (jsonStartIndex >= 0) {
             // 从 JSON 开始位置到末尾
             const jsonStr = lines.slice(jsonStartIndex).join('\n');
@@ -331,7 +435,7 @@ export class GatewayClient {
                 // 如果解析失败，尝试找到完整的 JSON 对象
             }
         }
-        
+
         // 尝试在整个输出中找 JSON
         const jsonMatch = output.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -356,10 +460,10 @@ export class GatewayClient {
         // 优先读取 JSON 配置，兼容旧版 YAML
         const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
         const yamlConfigPath = path.join(os.homedir(), '.openclaw', 'config.yaml');
-        
+
         try {
             let config: any = null;
-            
+
             // 优先尝试 JSON 配置
             if (fs.existsSync(jsonConfigPath)) {
                 const content = fs.readFileSync(jsonConfigPath, 'utf-8');
@@ -368,19 +472,19 @@ export class GatewayClient {
                 const content = fs.readFileSync(yamlConfigPath, 'utf-8');
                 config = yaml.load(content) as any;
             }
-            
+
             if (!config) {
                 throw new Error('No config file found');
             }
-            
+
             const models: ModelInfo[] = [];
             let currentModel = 'default';
-            
+
             // 读取当前模型
             if (config?.agents?.defaults?.model?.primary) {
                 currentModel = config.agents.defaults.model.primary;
             }
-            
+
             // 读取已配置的模型
             const configuredModels = config?.agents?.defaults?.models || {};
             for (const name of Object.keys(configuredModels)) {
@@ -392,7 +496,7 @@ export class GatewayClient {
                     selected: name === currentModel
                 });
             }
-            
+
             // 如果当前模型不在列表中，添加它
             if (currentModel && !models.find(m => m.id === currentModel)) {
                 const provider = currentModel.split('/')[0] || '';
@@ -403,7 +507,7 @@ export class GatewayClient {
                     selected: true
                 });
             }
-            
+
             // 添加默认选项
             if (!models.find(m => m.id === 'default')) {
                 models.unshift({
@@ -413,7 +517,7 @@ export class GatewayClient {
                     selected: currentModel === 'default' || !currentModel
                 });
             }
-            
+
             return { models, currentModel };
         } catch (err) {
             // 返回默认模型
@@ -428,23 +532,26 @@ export class GatewayClient {
      * 设置会话模型
      */
     public async setSessionModel(sessionId: string, model: string): Promise<void> {
+        // default 模型不需要显式设置
+        if (!model || model === 'default') {
+            return;
+        }
+
         return new Promise((resolve, reject) => {
-            const args = ['session', 'model', '--session', sessionId, '--model', model];
-            
-            const proc = spawn(this._openclawPath, args, {
-                env: {
-                    ...process.env,
-                    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || '')
-                }
+            const args = ['models', 'set', model];
+
+            const spawnCmd = this._getSpawnCommand(args);
+            const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
+                env: this._getSpawnEnv()
             });
 
             proc.on('close', (code) => {
                 if (code === 0) {
-                    resolve();
+                    console.log(`OpenClaw: 模型已切换为 ${model}`);
                 } else {
-                    // 如果命令不存在，静默失败
-                    resolve();
+                    console.warn(`OpenClaw: 模型切换失败 (exit code ${code})`);
                 }
+                resolve();
             });
 
             proc.on('error', () => {
@@ -458,7 +565,7 @@ export class GatewayClient {
      */
     public async deleteSession(sessionKey: string): Promise<void> {
         const http = require('http');
-        
+
         return new Promise((resolve) => {
             const postData = JSON.stringify({
                 type: 'req',
@@ -482,7 +589,7 @@ export class GatewayClient {
             };
 
             const req = http.request(options, (res: any) => {
-                res.on('data', () => {});
+                res.on('data', () => { });
                 res.on('end', () => resolve());
             });
 

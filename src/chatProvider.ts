@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { GatewayClient } from './gateway';
+import { ChatSessionManager } from './chatSessionManager';
+import { ProjectSkill } from './projectScanner';
 
 // i18n helper
 function getLocale(): string {
@@ -47,6 +49,14 @@ function t(key: string): string {
         sentFile: {
             en: 'Sent file',
             zh: '发送文件'
+        },
+        projectInit: {
+            en: 'Project initialized',
+            zh: '项目已初始化'
+        },
+        noSkills: {
+            en: 'No skills found in project',
+            zh: '项目中未发现技能'
         }
     };
     return messages[key]?.[locale] || messages[key]?.['en'] || key;
@@ -57,35 +67,39 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _sessionId: string;
     private _planMode: boolean = false;
     private _isSending: boolean = false;
-    private _notifiedWorkspaceDir: string | null = null;
+    private _sessionManager: ChatSessionManager;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _gateway: GatewayClient
     ) {
-        this._sessionId = 'vscode-main';
-        
+        // Use VS Code window session ID for isolation between multiple windows
+        const windowId = vscode.env.sessionId.slice(0, 8);
+        this._sessionId = `vscode-${windowId}`;
+
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
+
+        // 初始化 SessionManager
+        this._sessionManager = new ChatSessionManager(_extensionUri);
     }
 
-    private _getWorkspaceDir(): string | null {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            return workspaceFolders[0].uri.fsPath;
-        }
-        return null;
+    private async _initProjectConfig(forceRescan = false) {
+        await this._sessionManager.initProjectConfig(forceRescan);
     }
 
-    private _buildMessageWithWorkspace(content: string): string {
-        const currentDir = this._getWorkspaceDir();
-        
-        if (currentDir && currentDir !== this._notifiedWorkspaceDir) {
-            this._notifiedWorkspaceDir = currentDir;
-            return `[Current workspace: ${currentDir}]\n\n${content}`;
+    private _sendProjectStatus() {
+        if (!this._view) return;
+        const status = this._sessionManager.getProjectStatus();
+        this._view.webview.postMessage(status);
+    }
+
+    private _sendSkillsList() {
+        if (!this._view) return;
+        const message = this._sessionManager.getSkillsList(t);
+        if (message) {
+            this._view.webview.postMessage(message);
         }
-        
-        return content;
     }
 
     public resolveWebviewView(
@@ -105,6 +119,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this._getHtmlContent(webviewView.webview);
 
+        // Auto-scan project
+        this._initProjectConfig();
+
         webviewView.webview.onDidReceiveMessage(async (data) => {
             switch (data.type) {
                 case 'ready':
@@ -115,54 +132,69 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     });
                     await this._loadHistory();
                     this._sendModels();
-                    this._view?.webview.postMessage({ 
-                        type: 'updatePlanMode', 
-                        enabled: this._planMode 
+                    this._sendProjectStatus();
+                    this._view?.webview.postMessage({
+                        type: 'updatePlanMode',
+                        enabled: this._planMode
                     });
                     break;
-                    
+
                 case 'sendMessage':
                     if (data.planMode !== undefined) {
                         this._planMode = data.planMode;
                     }
                     await this._sendMessage(data.content);
                     break;
-                    
+
                 case 'stop':
                     this._gateway.stop();
                     this._isSending = false;
                     this._view?.webview.postMessage({ type: 'sendingComplete' });
                     break;
-                    
+
                 case 'refresh':
                     await this._loadHistory();
                     break;
-                    
+
                 case 'openSettings':
                     vscode.commands.executeCommand('workbench.action.openSettings', 'openclaw');
                     break;
-                    
+
                 case 'getFiles':
                     await this._handleGetFiles();
                     break;
-                    
+
                 case 'selectFile':
                     await this._handleSelectFile();
                     break;
-                    
+
                 case 'handleDrop':
                     await this._handleFileDrop(data.files);
                     break;
-                    
+
                 case 'saveImage':
                     await this._saveImage(data.data, data.name);
                     break;
-                    
+
                 case 'setPlanMode':
                     this._planMode = data.enabled;
                     break;
-                    
+
                 case 'setModel':
+                    this._gateway.setSessionModel(this._sessionId, data.model);
+                    break;
+
+                case 'initProject':
+                    await this._initProjectConfig(true);
+                    this._sendProjectStatus();
+                    break;
+
+                case 'listSkills':
+                    this._sendSkillsList();
+                    break;
+
+                case 'executeCommand':
+                    await this._executeSlashCommand(data.command);
                     break;
             }
         });
@@ -171,51 +203,86 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _getHtmlContent(webview: vscode.Webview): string {
         const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'webview', 'index.html');
         let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
-        
+
         const stylesUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'webview', 'styles.css')
         );
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'webview', 'main.js')
         );
-        
+
         html = html.replace(/\${cspSource}/g, webview.cspSource);
         html = html.replace(/\${stylesUri}/g, stylesUri.toString());
         html = html.replace(/\${scriptUri}/g, scriptUri.toString());
-        
+
         return html;
     }
 
     private async _sendModels() {
-        try {
-            const { models } = await this._gateway.getModels();
-            this._view?.webview.postMessage({
-                type: 'updateModels',
-                models
-            });
-        } catch (err) {
-            this._view?.webview.postMessage({
-                type: 'updateModels',
-                models: [{ id: 'default', name: t('defaultModel'), selected: true }]
-            });
-        }
+        const models = await this._sessionManager.getModels(this._gateway);
+        this._view?.webview.postMessage({
+            type: 'updateModels',
+            models
+        });
     }
 
     private async _sendMessage(content: string) {
         if (this._isSending) return;
-        
+
         this._isSending = true;
-        
-        let finalMessage = this._buildMessageWithWorkspace(content);
-        
+
+        // Check for /skillname or /.workflowname prefix
+        let forceSkillName: string | undefined;
+        let forceWorkflow = false;
+        let actualContent = content;
+
+        const slashMatch = content.match(/^\/(\S+)\s*(.*)/);
+        if (slashMatch) {
+            const prefix = slashMatch[1];
+            const rest = slashMatch[2];
+
+            if (prefix.startsWith('.')) {
+                // Force workflow: /.cursorrules
+                forceWorkflow = true;
+                actualContent = rest;
+            } else {
+                // Try as skill name
+                forceSkillName = prefix;
+                actualContent = rest;
+            }
+        }
+
+        // 使用 SessionManager 构建消息
+        const { message: finalMessage, triggeredSkill } = this._sessionManager.buildMessage(
+            actualContent,
+            this._sessionId,
+            forceSkillName,
+            forceWorkflow
+        );
+
+        // Notify UI about triggered skill
+        if (triggeredSkill) {
+            this._view?.webview.postMessage({
+                type: 'skillTriggered',
+                skill: {
+                    name: triggeredSkill.name,
+                    trigger: forceSkillName ? '/' + triggeredSkill.name : triggeredSkill.triggers.find(t =>
+                        actualContent.toLowerCase().includes(t.toLowerCase())
+                    ) || triggeredSkill.triggers[0]
+                }
+            });
+        }
+
+        // Add plan mode suffix if needed
+        let messageToSend = finalMessage;
         if (this._planMode) {
             const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
-            const isConfirm = confirmCommands.some(cmd => 
+            const isConfirm = confirmCommands.some(cmd =>
                 content.toLowerCase().trim() === cmd.toLowerCase()
             );
-            
+
             if (!isConfirm) {
-                finalMessage += `
+                messageToSend += `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ [Plan Mode - Do Not Execute]
@@ -231,13 +298,13 @@ Violation = Task failed
         }
 
         try {
-            const reply = await this._gateway.sendMessage(this._sessionId, finalMessage);
-            
+            const reply = await this._gateway.sendMessage(this._sessionId, messageToSend);
+
             let replyContent = reply.content;
             replyContent = replyContent.replace(/<think>[\s\S]*?<\/think>/g, '');
             replyContent = replyContent.replace(/<\/?final>/g, '');
             replyContent = replyContent.trim();
-            
+
             if (replyContent) {
                 this._view?.webview.postMessage({
                     type: 'addMessage',
@@ -256,89 +323,94 @@ Violation = Task failed
         }
     }
 
-    private async _loadHistory() {
-        try {
-            const history = await this._gateway.getHistory(this._sessionId);
-            const messages = history.map(msg => {
-                let content = msg.content;
-                content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
-                content = content.replace(/<\/?final>/g, '');
-                content = content.trim();
-                
-                return { role: msg.role, content };
-            }).filter(m => m.content);
-            
-            this._view?.webview.postMessage({
-                type: 'loadHistory',
-                messages
-            });
-        } catch (err) {
-            // Ignore
+    private async _executeSlashCommand(command: string) {
+        switch (command) {
+            case 'init':
+                await this._initProjectConfig(true);
+                this._sendSkillsList();
+                break;
+            case 'skills':
+                this._sendSkillsList();
+                break;
+            case 'workflow':
+                const workflowMessage = this._sessionManager.getWorkflowsList();
+                this._view?.webview.postMessage(workflowMessage);
+                break;
+            case 'clear':
+                this._view?.webview.postMessage({ type: 'clearMessages' });
+                break;
         }
+        this._view?.webview.postMessage({ type: 'commandExecuted' });
+    }
+
+    private async _handleCommand(content: string): Promise<boolean> {
+        const parts = content.trim().split(/\s+/);
+        const cmd = parts[0].toLowerCase();
+        const args = parts.slice(1);
+
+        switch (cmd) {
+            case '/init':
+                await this._initProjectConfig(true);
+                this._sendSkillsList();
+                return true;
+
+            case '/skills':
+                this._sendSkillsList();
+                return true;
+
+            case '/skill':
+                if (args.length > 0 && this._sessionManager.hasProjectConfig()) {
+                    const config = this._sessionManager.getProjectConfig();
+                    if (config) {
+                        const skill = config.skills.find(s => s.name === args[0]);
+                    if (skill) {
+                        this._view?.webview.postMessage({
+                            type: 'addMessage',
+                            role: 'system',
+                            content: `🎯 Skill "${skill.name}" will be applied to your next message.`
+                        });
+                    } else {
+                        this._view?.webview.postMessage({
+                            type: 'addMessage',
+                            role: 'system',
+                            content: `Skill "${args[0]}" not found.`
+                        });
+                        }
+                    }
+                }
+                return true;
+
+            case '/workflow':
+                const workflowMsg = this._sessionManager.getWorkflowsList();
+                this._view?.webview.postMessage(workflowMsg);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private async _loadHistory() {
+        const messages = await this._sessionManager.loadHistory(this._gateway, this._sessionId);
+        this._view?.webview.postMessage({
+            type: 'loadHistory',
+            messages
+        });
     }
 
     private async _handleGetFiles() {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            this._view?.webview.postMessage({ type: 'files', files: [] });
-            return;
-        }
-
-        // Get files
-        const files = await vscode.workspace.findFiles(
-            '**/*.{ts,tsx,js,jsx,py,go,rs,java,c,cpp,h,hpp,md,json,yaml,yml,toml,css,scss,html,vue,svelte,swift}',
-            '**/node_modules/**',
-            100
-        );
-
-        const fileList = files.map(f => {
-            const relativePath = vscode.workspace.asRelativePath(f);
-            return {
-                name: path.basename(f.fsPath),
-                path: f.fsPath,
-                relativePath,
-                isDirectory: false
-            };
-        });
-
-        // Extract unique directory paths from files
-        const dirSet = new Set<string>();
-        for (const f of files) {
-            const rel = vscode.workspace.asRelativePath(f);
-            const parts = rel.split('/');
-            let current = '';
-            for (let i = 0; i < parts.length - 1; i++) {
-                current = current ? `${current}/${parts[i]}` : parts[i];
-                dirSet.add(current);
-            }
-        }
-
-        const dirList = Array.from(dirSet).slice(0, 30).map(d => ({
-            name: d.split('/').pop() || d,
-            path: path.join(workspaceFolders[0].uri.fsPath, d),
-            relativePath: d,
-            isDirectory: true
-        }));
-
-        // Combine: directories first, then files
-        const combined = [...dirList, ...fileList];
-        this._view?.webview.postMessage({ type: 'files', files: combined });
+        const files = await this._sessionManager.getWorkspaceFiles();
+        this._view?.webview.postMessage({ type: 'files', files });
     }
 
     private async _handleSelectFile() {
-        const files = await vscode.window.showOpenDialog({
-            canSelectMany: true,
-            openLabel: t('addAttachment')
-        });
-        
-        if (files) {
-            for (const file of files) {
-                this._view?.webview.postMessage({
-                    type: 'fileSelected',
-                    name: path.basename(file.fsPath),
-                    path: file.fsPath
-                });
-            }
+        const files = await this._sessionManager.handleFileSelection();
+        for (const file of files) {
+            this._view?.webview.postMessage({
+                type: 'fileSelected',
+                name: file.name,
+                path: file.path
+            });
         }
     }
 
@@ -353,20 +425,13 @@ Violation = Task failed
     }
 
     private async _saveImage(base64Data: string, name: string) {
-        try {
-            const tmpDir = require('os').tmpdir();
-            const filePath = path.join(tmpDir, name);
-            const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
-            const buffer = Buffer.from(base64, 'base64');
-            fs.writeFileSync(filePath, buffer);
-            
+        const result = await this._sessionManager.saveImage(base64Data, name);
+        if (result) {
             this._view?.webview.postMessage({
                 type: 'fileSaved',
-                name,
-                path: filePath
+                name: result.name,
+                path: result.path
             });
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`${t('saveImageFailed')}: ${err.message}`);
         }
     }
 
@@ -377,7 +442,7 @@ Violation = Task failed
 
     public newSession() {
         this._sessionId = `vscode-${Date.now()}`;
-        this._notifiedWorkspaceDir = null;
+        this._sessionManager.resetSession(this._sessionId);
         this._view?.webview.postMessage({ type: 'clearMessages' });
         vscode.window.showInformationMessage(`${t('newSession')}: ${this._sessionId}`);
     }
@@ -395,7 +460,7 @@ Violation = Task failed
 
         const selection = editor.selection;
         const text = editor.document.getText(selection);
-        
+
         if (!text) {
             vscode.window.showWarningMessage(t('noSelection'));
             return;
@@ -403,15 +468,15 @@ Violation = Task failed
 
         const fileName = path.basename(editor.document.fileName);
         const lang = editor.document.languageId;
-        
+
         const content = `Please analyze this code:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
-        
+
         this._view?.webview.postMessage({
             type: 'addMessage',
             role: 'user',
             content: `[${t('selectedCode')}: ${fileName}]`
         });
-        
+
         await this._sendMessage(content);
     }
 
@@ -425,15 +490,15 @@ Violation = Task failed
         const text = editor.document.getText();
         const fileName = path.basename(editor.document.fileName);
         const lang = editor.document.languageId;
-        
+
         const content = `Please analyze this file:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
-        
+
         this._view?.webview.postMessage({
             type: 'addMessage',
             role: 'user',
             content: `[${t('sentFile')}: ${fileName}]`
         });
-        
+
         await this._sendMessage(content);
     }
 }
