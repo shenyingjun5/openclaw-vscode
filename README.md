@@ -305,8 +305,86 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 📎 **文件和图片附件** - 附加代码文件和图片
 - 🖼️ **图片粘贴** - 从剪贴板直接粘贴图片
 - 🔄 **多窗口支持** - 最多 5 个并行聊天会话
-- 🌍 **多语言** - 界面和 AI 输出完整国际化
+- 🌍 **多语言** - 界面和 AI 输出完整国际化（zh-CN、en、ja、ko）
 - 🪟 **Windows 支持** - 95% 平台兼容性
+
+## v0.2.2 新特性
+
+### 🎯 会话级模型切换
+
+按会话切换模型，不影响其他窗口或全局配置。
+
+- **会话级覆盖** - 每个 VS Code 窗口可使用不同模型
+- **即时生效** - 切换后立即使用新模型，无需重启
+- **持久化** - 模型选择保存在会话存储中，重启后保持
+- **默认模型配置** - 在设置中为新会话配置默认模型
+
+### 🌐 设置界面国际化
+
+- 所有设置项、命令、描述支持中英文
+- 根据 VS Code 显示语言自动切换
+- 使用官方 `package.nls.json` 机制
+
+### 📨 消息队列系统
+
+- AI 回复时可继续发送消息，自动排队处理
+- 队列可视化显示在输入框上方
+- 每个队列项可单独删除
+- AI 完成后自动处理下一条
+
+### 🔌 连接状态指示器
+
+- 顶栏实时显示连接状态（🟢 已连接 / 🔴 未连接 / 🟡 连接中）
+- WebSocket 事件驱动，零轮询
+- 断线时脉冲动画提醒
+
+### 🔧 工具调用流式显示
+
+- AI 调用工具时实时显示（exec、read、write 等）
+- 点击展开查看完整参数
+- 智能摘要（命令、路径等关键信息）
+
+### 💡 友好错误处理
+
+- 错误作为带样式的聊天消息展示（信息/警告/错误/停止）
+- 11 种错误类型智能识别（连接、Token、模型、权限等）
+- 每种错误提供可操作的解决建议
+- "已停止" 显示友好提示（2 秒自动消失）
+
+### 🔄 自动刷新
+
+- 手动刷新带旋转动画
+- 可配置自动刷新间隔（默认 1000ms，0 禁用）
+- 刷新时自动尝试重连 WebSocket
+
+## v0.2.0 新特性
+
+### 🎉 变更预览与应用
+
+AI 可以返回结构化的文件变更，支持可视化预览和应用：
+
+```
+┌────────────────────────────────────────────────────┐
+│ 📁 File Changes                     3 files         │
+├────────────────────────────────────────────────────┤
+│ 📝 src/Header.tsx (Modify)             ✓    ✗      │
+│ ➕ src/utils.ts (Create)               ✓    ✗      │
+│ 🗑️ src/old.js (Delete)                 ✓    ✗      │
+├────────────────────────────────────────────────────┤
+│               [ Accept All ]  [ Reject All ]        │
+└────────────────────────────────────────────────────┘
+```
+
+- 点击文件名 → 在 VS Code 原生 Diff 视图中预览
+- ✓ / ✗ → 应用或跳过单个文件
+- 批量接受/拒绝所有变更
+- 发送新消息时自动接受待处理变更
+
+### 🌍 多语言 AI 输出
+
+**设置项：** `openclaw.aiOutputLanguage`
+- `auto` - 跟随系统语言（默认）
+- `zh-CN` / `en` / `ja` / `ko`
 
 ## 安装
 
@@ -329,6 +407,22 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 必须安装并运行 [OpenClaw](https://github.com/openclaw/openclaw)
 - Gateway 需要在 `http://127.0.0.1:18789` 可访问
 
+### Windows 用户
+
+如遇 "Cannot find openclaw" 错误：
+
+1. 查找 OpenClaw 路径：
+   ```cmd
+   where openclaw
+   ```
+
+2. 在 VS Code 设置中配置 (`Ctrl+,`)：
+   - 搜索 "OpenClaw: Openclaw Path"
+   - 输入路径，例如：
+     - npm: `C:\Users\YourName\AppData\Roaming\npm\openclaw.cmd`
+     - scoop: `C:\Users\YourName\scoop\shims\openclaw.cmd`
+     - chocolatey: `C:\ProgramData\chocolatey\bin\openclaw.exe`
+
 ## 使用方法
 
 ### 侧边栏聊天
@@ -344,7 +438,69 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 选择 "default" 恢复全局默认模型
 - 在设置中配置 `openclaw.defaultModel` 设定新会话默认模型
 
-### 配置
+### 项目技能与工作流
+
+#### 技能
+技能会从工作区中的任意 `skills/` 文件夹自动检测。
+
+```
+project/
+├── skills/
+│   ├── debug/
+│   │   └── skill.md
+│   └── refactor/
+│       └── skill.md
+```
+
+**使用方式：**
+- 输入触发关键词："help me debug this code"
+- 或使用斜杠命令：`/debug`
+- 或运行 `/skills` 列出所有可用技能
+
+#### 工作流
+工作流从 `workflows/` 文件夹自动检测。
+
+```
+project/
+└── workflows/
+    ├── .cursorrules
+    └── code-review.md
+```
+
+**使用方式：**
+- 使用斜杠前缀：`/.cursorrules what should I do?`
+- 或运行 `/workflow` 列出所有工作流
+
+### 斜杠命令
+
+| 命令 | 描述 |
+|------|------|
+| `/init` | 初始化项目（扫描技能/工作流） |
+| `/skills` | 列出所有检测到的技能 |
+| `/workflow` | 列出所有工作流 |
+| `/clear` | 清空聊天历史 |
+| `/<技能名>` | 强制使用特定技能 |
+| `/.<工作流>` | 注入工作流 |
+
+### 文件引用
+
+在输入框中输入 `@` 打开文件选择器：
+- 按文件名搜索
+- 拖放文件
+- 从剪贴板粘贴图片
+
+### 计划模式 vs 执行模式
+- **执行模式**（默认）：AI 可以调用工具并进行更改
+- **计划模式**：AI 只输出计划，等待确认后才执行
+
+在底部工具栏中切换。
+
+### 快捷键
+- `Enter` - 发送消息
+- `Shift+Enter` - 换行
+- 输入 `@` - 打开文件选择器
+
+## 配置
 
 打开 VS Code 设置 (`Ctrl+,`) 搜索 "OpenClaw"：
 
@@ -363,13 +519,58 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 ## 开发
 
 ```bash
+# 克隆并安装
 git clone https://github.com/shenyingjun5/openclaw-vscode
 cd openclaw-vscode
 npm install
+
+# 编译
 npm run compile
-npm run watch    # 监视模式
-npx @vscode/vsce package  # 打包
+
+# 监视模式
+npm run watch
+
+# 打包
+npx @vscode/vsce package
 ```
+
+## 故障排查
+
+### 连接失败
+
+**症状**：顶栏红点，"连接失败"
+
+**解决方案**：
+1. 确保已安装 OpenClaw：`openclaw --version`
+2. 检查 Gateway 是否运行：`openclaw gateway status`
+3. Windows 用户需在 VS Code 设置中配置路径
+4. 确认 Gateway URL 与配置一致
+
+### 技能未检测到
+
+1. 确保工作区中有 `skills/` 文件夹
+2. 运行 `/init` 命令强制重新扫描
+3. 检查 skill.md 格式（需要 YAML frontmatter）
+
+### 模型切换不生效
+
+- 扩展使用 WebSocket 发送 `/model` 命令（最可靠）
+- WebSocket 失败时自动使用 CLI 兜底
+- 检查 `openclaw.enableCliFallback` 是否启用（默认：true）
+
+## 路线图
+
+- [x] Gateway WebSocket API 支持
+- [x] 流式输出 UI
+- [x] 多会话管理
+- [x] 发布到 Open VSX
+- [ ] 自定义快捷键
+- [ ] 内联 Diff 编辑
+- [ ] 语音输入
+
+## 贡献
+
+欢迎贡献！请提交 Issue 或 PR。
 
 ## 许可证
 
