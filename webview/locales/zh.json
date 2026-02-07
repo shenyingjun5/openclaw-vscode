@@ -18,6 +18,8 @@
     "close": "关闭",
     "stop": "停止",
     "send": "发送",
+    "queuedMessages": "队列中",
+    "removeFromQueue": "从队列中移除",
     "commands": "命令",
     "skills": "技能",
     "workflow": "工作流",

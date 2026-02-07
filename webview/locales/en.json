@@ -18,6 +18,8 @@
     "close": "Close",
     "stop": "Stop",
     "send": "Send",
+    "queuedMessages": "Queued",
+    "removeFromQueue": "Remove from queue",
     "commands": "Commands",
     "skills": "Skills",
     "workflow": "Workflow",

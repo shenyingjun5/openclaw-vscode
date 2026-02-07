@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
+import * as vscode from 'vscode';
+import { GatewayWSClient } from './gatewayWSClient';
 
 export interface ModelInfo {
     id: string;
@@ -22,16 +24,51 @@ type MessageCallback = (message: Message) => void;
 type StreamCallback = (chunk: string, done: boolean) => void;
 
 export class GatewayClient {
+    private _baseUrl: string;
     private _openclawPath: string;
     private _connected: boolean = false;
     private _connectionCallbacks: ConnectionCallback[] = [];
     private _messageCallbacks: MessageCallback[] = [];
     private _currentProcess: ChildProcess | null = null;
+    private _wsClient: GatewayWSClient | null = null;
+    private _mode: 'cli' | 'ws' = 'ws'; // 默认使用 WebSocket
+    private _activeSessionKey: string | null = null;
+    private _activeRunId: string | null = null;
+    private _gatewayToken?: string;
 
     constructor(baseUrl: string, customPath?: string) {
-        // baseUrl 暂时不用，直接调用 CLI
+        this._baseUrl = baseUrl;
         // 尝试常见的 openclaw 路径
         this._openclawPath = this._findOpenclawPath(customPath);
+        // 读取 Gateway auth token
+        this._gatewayToken = this._readGatewayToken();
+    }
+
+    /**
+     * 从 OpenClaw 配置文件读取 Gateway auth token
+     */
+    private _readGatewayToken(): string | undefined {
+        try {
+            const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+            if (fs.existsSync(jsonConfigPath)) {
+                const content = fs.readFileSync(jsonConfigPath, 'utf-8');
+                const config = JSON.parse(content);
+                const token = config?.gateway?.auth?.token;
+                if (token && typeof token === 'string') {
+                    return token;
+                }
+            }
+        } catch (err) {
+            console.warn('[Gateway] Failed to read gateway token:', err);
+        }
+        return undefined;
+    }
+
+    /**
+     * 是否允许 CLI 兜底（读取配置）
+     */
+    private _isCliFallbackEnabled(): boolean {
+        return vscode.workspace.getConfiguration('openclaw').get('enableCliFallback', false);
     }
 
     private _findOpenclawPath(customPath?: string): string {
@@ -160,8 +197,31 @@ export class GatewayClient {
     }
 
     public async connect(): Promise<void> {
+        // 先尝试 WebSocket 模式
+        if (this._mode === 'ws') {
+            try {
+                if (!this._wsClient) {
+                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
+                }
+                await this._wsClient.connect();
+                this._connected = true;
+                this._notifyConnectionChange(true);
+                return;
+            } catch (err) {
+                if (!this._isCliFallbackEnabled()) {
+                    this._connected = false;
+                    this._notifyConnectionChange(false);
+                    throw new Error(`WebSocket 连接失败: ${err instanceof Error ? err.message : err}`);
+                }
+                console.warn('[Gateway] WebSocket connection failed, trying CLI mode:', err);
+                // WebSocket 失败，切换到 CLI 模式
+                this._mode = 'cli';
+                this._wsClient = null;
+            }
+        }
+        
+        // CLI 模式：检查可用性
         try {
-            // 检查 openclaw 是否可用
             await this._checkOpenclawAvailable();
             this._connected = true;
             this._notifyConnectionChange(true);
@@ -186,7 +246,13 @@ export class GatewayClient {
         this._messageCallbacks.push(callback);
     }
 
+    /**
+     * 检查是否已连接
+     */
     public isConnected(): boolean {
+        if (this._mode === 'ws') {
+            return this._wsClient?.isConnected() || false;
+        }
         return this._connected;
     }
 
@@ -198,6 +264,51 @@ export class GatewayClient {
         message: string,
         onStream?: StreamCallback
     ): Promise<Message> {
+        // 优先使用 WebSocket
+        if (this._mode === 'ws') {
+            try {
+                if (!this._wsClient) {
+                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
+                    await this._wsClient.connect();
+                }
+
+                // 追踪当前运行的 session（用于 abort）
+                this._activeSessionKey = sessionId;
+
+                const result = await this._wsClient.sendMessage(sessionId, message, {
+                    stream: !!onStream,
+                    onStream: onStream ? (text) => onStream(text, false) : undefined
+                });
+
+                // 流式完成通知
+                if (onStream) {
+                    onStream('', true);
+                }
+
+                // 运行结束，清除追踪
+                this._activeSessionKey = null;
+                this._activeRunId = null;
+
+                // 确保 timestamp 存在
+                const responseMessage: Message = {
+                    role: result.role,
+                    content: result.content,
+                    timestamp: result.timestamp || new Date().toISOString()
+                };
+
+                return responseMessage;
+            } catch (err) {
+                this._activeSessionKey = null;
+                this._activeRunId = null;
+                if (!this._isCliFallbackEnabled()) {
+                    throw new Error(`WebSocket 发送失败: ${err instanceof Error ? err.message : err}`);
+                }
+                console.warn('[Gateway] WebSocket failed, falling back to CLI:', err);
+                this._mode = 'cli'; // 回退到 CLI
+            }
+        }
+
+        // CLI 模式（回退方案）
         return new Promise((resolve, reject) => {
             const args = [
                 'agent',
@@ -294,13 +405,29 @@ export class GatewayClient {
                 this._currentProcess = null;
                 reject(err);
             });
-        });
-    }
+        });  // CLI Promise 结束
+    }  // sendMessage 方法结束
 
     /**
      * 停止当前生成
+     * WebSocket 模式：调用 chat.abort（与 webchat 一致）
+     * CLI 模式：杀掉子进程
      */
     public stop(): void {
+        // WebSocket 模式：通过 chat.abort 通知 Gateway
+        if (this._mode === 'ws' && this._wsClient && this._activeSessionKey) {
+            const sessionKey = this._activeSessionKey;
+            const runId = this._activeRunId || undefined;
+            this._activeSessionKey = null;
+            this._activeRunId = null;
+            
+            this._wsClient.abortChat(sessionKey, runId).catch((err) => {
+                console.warn('[Gateway] chat.abort failed:', err);
+            });
+            return;
+        }
+
+        // CLI 模式：杀掉子进程
         if (this._currentProcess) {
             this._currentProcess.kill('SIGTERM');
             this._currentProcess = null;
@@ -317,7 +444,33 @@ export class GatewayClient {
     /**
      * 获取会话历史
      */
-    public async getHistory(sessionId: string): Promise<Message[]> {
+    public async getHistory(sessionId: string, limit?: number): Promise<Message[]> {
+        // 优先使用 WebSocket
+        if (this._mode === 'ws') {
+            try {
+                if (!this._wsClient) {
+                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
+                    await this._wsClient.connect();
+                }
+                
+                // WebSocket 返回完整消息（包括 toolCall）
+                const messages = await this._wsClient.getHistory(sessionId, limit);
+                // 确保 timestamp 存在
+                return messages.map(m => ({
+                    ...m,
+                    timestamp: m.timestamp || new Date().toISOString()
+                })) as Message[];
+            } catch (err) {
+                if (!this._isCliFallbackEnabled()) {
+                    console.error('[Gateway] WebSocket getHistory failed:', err);
+                    return [];
+                }
+                console.warn('[Gateway] WebSocket getHistory failed, falling back to CLI:', err);
+                // 回退到 CLI
+            }
+        }
+        
+        // CLI 模式（回退方案）
         return this.getMessages(sessionId);
     }
 
@@ -325,6 +478,26 @@ export class GatewayClient {
      * 获取会话列表
      */
     public async getSessions(): Promise<any[]> {
+        // 优先使用 WebSocket
+        if (this._mode === 'ws') {
+            try {
+                if (!this._wsClient) {
+                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
+                    await this._wsClient.connect();
+                }
+                
+                return await this._wsClient.getSessions();
+            } catch (err) {
+                if (!this._isCliFallbackEnabled()) {
+                    console.error('[Gateway] WebSocket getSessions failed:', err);
+                    return [];
+                }
+                console.warn('[Gateway] WebSocket getSessions failed, falling back to CLI:', err);
+                // 回退到 CLI
+            }
+        }
+        
+        // CLI 模式（回退方案）
         return new Promise((resolve, reject) => {
             const spawnCmd = this._getSpawnCommand(['sessions', 'list', '--json']);
             const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
@@ -375,10 +548,17 @@ export class GatewayClient {
             proc.on('close', (code) => {
                 try {
                     const result = JSON.parse(stdout);
+                    // 保留完整的消息对象
                     const messages = (result.messages || []).map((m: any) => ({
                         role: m.role || 'user',
                         content: m.content || '',
-                        timestamp: m.timestamp || new Date().toISOString()
+                        timestamp: m.timestamp || new Date().toISOString(),
+                        // 保留工具调用信息
+                        ...(m.toolCall && { toolCall: m.toolCall }),
+                        // 保留工具名称
+                        ...(m.name && { name: m.name }),
+                        // 保留思考过程
+                        ...(m.thinking && { thinking: m.thinking })
                     }));
                     resolve(messages);
                 } catch {
@@ -457,7 +637,7 @@ export class GatewayClient {
      * 获取可用模型列表（从配置文件读取）
      */
     public async getModels(): Promise<{ models: ModelInfo[], currentModel: string }> {
-        // 优先读取 JSON 配置，兼容旧版 YAML
+        // 读取本地配置文件中的模型（只显示用户配置的模型）
         const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
         const yamlConfigPath = path.join(os.homedir(), '.openclaw', 'config.yaml');
 
@@ -498,7 +678,7 @@ export class GatewayClient {
             }
 
             // 如果当前模型不在列表中，添加它
-            if (currentModel && !models.find(m => m.id === currentModel)) {
+            if (currentModel && currentModel !== 'default' && !models.find(m => m.id === currentModel)) {
                 const provider = currentModel.split('/')[0] || '';
                 models.unshift({
                     id: currentModel,
@@ -508,21 +688,11 @@ export class GatewayClient {
                 });
             }
 
-            // 添加默认选项
-            if (!models.find(m => m.id === 'default')) {
-                models.unshift({
-                    id: 'default',
-                    name: '默认模型',
-                    provider: '',
-                    selected: currentModel === 'default' || !currentModel
-                });
-            }
-
             return { models, currentModel };
         } catch (err) {
-            // 返回默认模型
+            // 无法读取配置，返回空列表
             return {
-                models: [{ id: 'default', name: '默认模型', provider: '', selected: true }],
+                models: [],
                 currentModel: 'default'
             };
         }
@@ -531,8 +701,30 @@ export class GatewayClient {
     /**
      * 设置会话模型
      */
+    /**
+     * 设置会话模型（会话级覆盖）
+     */
     public async setSessionModel(sessionId: string, model: string): Promise<void> {
-        // default 模型不需要显式设置
+        // 通过 chat.send 发送 /model 命令切换模型
+        // 注意：sessions.patch 只写 session store 的 modelOverride，
+        // 但 dispatchInboundMessage 内部的 agent context 不会读取该 override，
+        // 必须通过 /model 命令走完整的模型切换流程
+        if (this._mode === 'ws' && this._wsClient) {
+            try {
+                const modelCmd = (!model || model === 'default') ? '/model default' : `/model ${model}`;
+                await this._wsClient.sendMessage(sessionId, modelCmd);
+                console.log(`OpenClaw: 会话 ${sessionId} 模型已通过 /model 命令设置为 ${model || '默认'}`);
+                return;
+            } catch (err) {
+                if (!this._isCliFallbackEnabled()) {
+                    console.error('[Gateway] WebSocket /model command failed:', err);
+                    throw new Error(`会话模型设置失败: ${err instanceof Error ? err.message : err}`);
+                }
+                console.warn('[Gateway] WebSocket /model command failed, falling back to CLI:', err);
+            }
+        }
+
+        // CLI 回退方案（全局设置）
         if (!model || model === 'default') {
             return;
         }
@@ -547,7 +739,7 @@ export class GatewayClient {
 
             proc.on('close', (code) => {
                 if (code === 0) {
-                    console.log(`OpenClaw: 模型已切换为 ${model}`);
+                    console.log(`OpenClaw: 全局模型已切换为 ${model}`);
                 } else {
                     console.warn(`OpenClaw: 模型切换失败 (exit code ${code})`);
                 }
@@ -564,6 +756,31 @@ export class GatewayClient {
      * 删除会话
      */
     public async deleteSession(sessionKey: string): Promise<void> {
+        // 优先使用 WebSocket
+        if (this._mode === 'ws') {
+            try {
+                if (!this._wsClient) {
+                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
+                    await this._wsClient.connect();
+                }
+                
+                await this._wsClient.deleteSession(sessionKey);
+                return;
+            } catch (err) {
+                if (!this._isCliFallbackEnabled()) {
+                    console.error('[Gateway] WebSocket deleteSession failed:', err);
+                    return;
+                }
+                console.warn('[Gateway] WebSocket deleteSession failed, falling back to HTTP:', err);
+                // 回退到 HTTP
+            }
+        }
+        
+        // HTTP 模式（回退方案）
+        return this._deleteSessionHTTP(sessionKey);
+    }
+
+    private async _deleteSessionHTTP(sessionKey: string): Promise<void> {
         const http = require('http');
 
         return new Promise((resolve) => {

@@ -140,13 +140,19 @@ export class ChatPanel {
         this._extensionUri = extensionUri;
         this._gateway = gateway;
         this._panelId = panelId;
-        this._sessionId = `vscode-panel${panelId}`;
+        
+        // Include window ID for multi-window isolation
+        const windowId = vscode.env.sessionId.slice(0, 8);
+        this._sessionId = `vscode-panel-${windowId}-${panelId}`;
 
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
 
         // 初始化 SessionManager
         this._sessionManager = new ChatSessionManager(extensionUri);
+        
+        // 🔧 监听工具调用事件
+        this._setupToolCallListener();
 
         this._panel.webview.html = this._getHtmlContent();
 
@@ -169,6 +175,9 @@ export class ChatPanel {
                             type: 'updatePlanMode', 
                             enabled: this._planMode 
                         });
+                        
+                        // 主动建立连接并更新状态
+                        await this._ensureConnection();
                         break;
                         
                     case 'sendMessage':
@@ -182,10 +191,34 @@ export class ChatPanel {
                         this._gateway.stop();
                         this._isSending = false;
                         this._panel.webview.postMessage({ type: 'sendingComplete' });
+                        // 发送停止提示
+                        this._panel.webview.postMessage({
+                            type: 'systemMessage',
+                            error: {
+                                message: 'stopped',
+                                context: 'user_stop'
+                            }
+                        });
                         break;
                         
                     case 'refresh':
                         await this._loadHistory();
+                        // 发送刷新完成消息
+                        this._panel.webview.postMessage({ type: 'refreshComplete' });
+                        // 更新连接状态
+                        this._checkConnection();
+                        break;
+
+                    case 'checkConnection':
+                        this._checkConnection();
+                        break;
+
+                    case 'getAutoRefreshInterval':
+                        const interval = vscode.workspace.getConfiguration('openclaw').get('autoRefreshInterval', 10000);
+                        this._panel.webview.postMessage({ 
+                            type: 'autoRefreshInterval', 
+                            interval: interval 
+                        });
                         break;
                         
                     case 'openSettings':
@@ -213,6 +246,12 @@ export class ChatPanel {
                         break;
                         
                     case 'setModel':
+                        try {
+                            await this._gateway.setSessionModel(this._sessionId, data.model);
+                            vscode.window.showInformationMessage(`模型已切换为: ${data.model}`);
+                        } catch (err: any) {
+                            vscode.window.showErrorMessage(`模型切换失败: ${err.message || err}`);
+                        }
                         break;
                         
                     case 'initProject':
@@ -262,6 +301,20 @@ export class ChatPanel {
             null,
             this._disposables
         );
+    }
+    
+    private _setupToolCallListener() {
+        // 如果 gateway 使用 WebSocket 模式，监听工具调用事件
+        const wsClient = (this._gateway as any)._wsClient;
+        if (wsClient) {
+            wsClient.on('tool.call', (payload: { name: string; args?: any }) => {
+                this._panel.webview.postMessage({
+                    type: 'addToolCall',
+                    name: payload.name,
+                    args: payload.args
+                });
+            });
+        }
     }
 
     private _getHtmlContent(): string {
@@ -333,6 +386,11 @@ export class ChatPanel {
             forceWorkflow
         );
 
+        // 如果 /xxx 没命中任何技能，按原文放行给 AI
+        const effectiveMessage = (forceSkillName && !triggeredSkill)
+            ? this._sessionManager.buildMessage(content, this._sessionId, undefined, false).message
+            : finalMessage;
+
         // 通知 UI 触发的技能
         if (triggeredSkill) {
             this._panel.webview.postMessage({
@@ -345,7 +403,20 @@ export class ChatPanel {
         }
 
         // Plan Mode 后缀
-        let messageToSend = finalMessage;
+        let messageToSend = effectiveMessage;
+
+        // 空消息检查
+        if (!messageToSend.trim()) {
+            this._panel.webview.postMessage({
+                type: 'error',
+                content: '消息内容为空',
+                context: 'send'
+            });
+            this._isSending = false;
+            this._panel.webview.postMessage({ type: 'sendingComplete' });
+            return;
+        }
+
         if (this._planMode) {
             const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
             const isConfirm = confirmCommands.some(cmd =>
@@ -390,7 +461,8 @@ export class ChatPanel {
         } catch (err: any) {
             this._panel.webview.postMessage({
                 type: 'error',
-                content: `${t('sendFailed')}: ${err.message}`
+                content: err.message || String(err),
+                context: 'send'
             });
         } finally {
             this._isSending = false;
@@ -404,6 +476,40 @@ export class ChatPanel {
             type: 'loadHistory',
             messages
         });
+    }
+
+    private _checkConnection() {
+        // 检查 Gateway 连接状态
+        const isConnected = this._gateway.isConnected();
+        this._panel.webview.postMessage({
+            type: 'connectionStatus',
+            status: isConnected ? 'connected' : 'disconnected'
+        });
+    }
+
+    private async _ensureConnection() {
+        try {
+            // 发送连接中状态
+            this._panel.webview.postMessage({
+                type: 'connectionStatus',
+                status: 'connecting'
+            });
+            
+            // 尝试连接
+            await this._gateway.connect();
+            
+            // 连接成功
+            this._panel.webview.postMessage({
+                type: 'connectionStatus',
+                status: 'connected'
+            });
+        } catch (err) {
+            // 连接失败
+            this._panel.webview.postMessage({
+                type: 'connectionStatus',
+                status: 'disconnected'
+            });
+        }
     }
 
     private async _handleGetFiles() {

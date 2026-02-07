@@ -20,17 +20,7 @@ export class MessageBuilder {
         let workflowIncluded = false;
 
         if (config) {
-            // 1. Global workflows (first message only per session)
-            if (config.workflows && config.workflows.length > 0 && !this.workflowSent.has(sessionId)) {
-                const workflowContent = config.workflows.map(w =>
-                    `[${w.name}]\n${w.content}`
-                ).join('\n\n---\n\n');
-                parts.push(`[Project Workflows]\n${workflowContent}`);
-                this.workflowSent.add(sessionId);
-                workflowIncluded = true;
-            }
-
-            // 2. Matched skill
+            // Matched skill only (workflows are not auto-injected)
             if (matchedSkill) {
                 parts.push(`[Skill: ${matchedSkill.name}]\n${matchedSkill.content}`);
             }

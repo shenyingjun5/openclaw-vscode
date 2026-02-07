@@ -55,6 +55,9 @@
     <div class="header">
         <div class="header-title">
             <span class="header-icon">🦞</span>
+            <span class="status-indicator disconnected" 
+                  id="statusIndicator"
+                  title="Gateway 未连接"></span>
         </div>
         <div class="header-actions">
             <button class="icon-btn" id="refreshBtn" data-i18n-title="refresh">
@@ -77,6 +80,12 @@
 
     <!-- 输入区 -->
     <div class="input-area">
+        <!-- 队列容器（在输入框上方） -->
+        <div class="chat-queue" id="queueContainer" style="display: none;">
+            <div class="chat-queue__title">📋 <span data-i18n="queuedMessages"></span> (<span id="queueCount">0</span>)</div>
+            <div class="chat-queue__list" id="queueList"></div>
+        </div>
+        
         <!-- 附件预览区 -->
         <div class="attachments-preview" id="attachmentsPreview"></div>
 
@@ -98,7 +107,7 @@
                     <option value="plan" data-i18n="planMode"></option>
                 </select>
                 <select class="toolbar-select" id="modelSelect">
-                    <option value="default" data-i18n="defaultModel"></option>
+                    <!-- Models loaded dynamically -->
                 </select>
             </div>
             <button class="send-btn" id="sendBtn" data-i18n-title="send">

@@ -5,79 +5,96 @@ AI coding assistant for VS Code, powered by OpenClaw.
 ## Features
 
 - 💬 **Chat with AI** - Sidebar and popup panel chat interface
-- 🔄 **Diff Preview & Apply** - Visual preview and apply code changes (NEW in v0.2.0)
-- 🎯 **Skills Integration** - Auto-detect and use project skills
-- 📋 **Workflow Support** - Inject and execute project workflows
-- 📋 **Plan Mode / Execute Mode** - Control when AI can execute actions
+- 🔄 **Diff Preview & Apply** - Visual preview and apply code changes
+- 🎯 **Session-level Model Switching** - Per-session model override, multi-window independent
+- 🔌 **Real-time Connection Status** - Live WebSocket connection indicator
+- 📨 **Message Queue** - Send messages while AI is responding, auto-queued
+- 🔧 **Tool Call Display** - Real-time tool invocation feedback
+- 💡 **Friendly Error Messages** - Smart error classification with actionable suggestions
+- 🎯 **Skills & Workflows** - Auto-detect and use project skills
 - 📎 **File & Image Attachments** - Attach code files and images to your messages
 - 🖼️ **Image Paste** - Paste images directly from clipboard
 - 🔄 **Multi-window Support** - Up to 5 parallel chat sessions
-- 🌍 **Multi-language** - Auto-detect system language for UI and AI responses
+- 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
 - 🪟 **Windows Support** - Enhanced Windows compatibility (95% coverage)
+
+## What's New in v0.2.2
+
+### 🎯 Session-level Model Switching
+
+Switch models per-session without affecting other windows or the global config.
+
+- **Per-session override** - Each VS Code window can use a different model
+- **Instant effect** - Switch takes effect immediately, no restart needed
+- **Persistent** - Model selection saved in session store, survives restarts
+- **Default model config** - Configure default model for new sessions in settings
+
+### 🌐 Settings i18n
+
+- All settings, commands, and descriptions support Chinese and English
+- Auto-switches based on VS Code display language
+- Uses official `package.nls.json` mechanism
+
+### 📨 Message Queue System
+
+- Send messages while AI is still responding — they queue automatically
+- Visual queue display above input box
+- Individual queue items can be removed
+- Auto-processes next message when AI finishes
+
+### 🔌 Connection Status Indicator
+
+- Live connection state in title bar (🟢 connected / 🔴 disconnected / 🟡 connecting)
+- WebSocket event-driven, zero-polling
+- Pulse animation on disconnect
+
+### 🔧 Tool Call Streaming
+
+- Real-time display of tool invocations (exec, read, write, etc.)
+- Click to expand full parameters
+- Smart summary (command, path, etc.)
+
+### 💡 Friendly Error Handling
+
+- Errors appear as styled chat messages (info/warning/error/stop)
+- 11 error types recognized (connection, token, model, auth, etc.)
+- Actionable suggestions for each error type
+- "Stopped" shows friendly message (auto-dismiss in 2s)
+
+### 🔄 Auto Refresh
+
+- Manual refresh with spin animation
+- Configurable auto-refresh interval (default 1000ms, 0 to disable)
+- Smart WebSocket reconnect on refresh
 
 ## What's New in v0.2.0
 
-### 🎉 Diff Preview & Apply Feature
+### 🎉 Diff Preview & Apply
 
-AI can now return structured file changes that you can preview and apply visually!
+AI can return structured file changes that you preview and apply visually:
 
-**Change Card UI:**
 ```
-┌─────────────────────────────────────────────────────────┐
-│ 📁 File Changes                       3 files           │
-├─────────────────────────────────────────────────────────┤
-│ 📝 src/Header.tsx (Modify)               ✓    ✗        │
-│ ➕ src/utils.ts (Create)                 ✓    ✗        │
-│ 🗑️ src/old.js (Delete)                   ✓    ✗        │
-├─────────────────────────────────────────────────────────┤
-│                 [ Accept All ]  [ Reject All ]          │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│ 📁 File Changes                     3 files         │
+├────────────────────────────────────────────────────┤
+│ 📝 src/Header.tsx (Modify)             ✓    ✗      │
+│ ➕ src/utils.ts (Create)               ✓    ✗      │
+│ 🗑️ src/old.js (Delete)                 ✓    ✗      │
+├────────────────────────────────────────────────────┤
+│               [ Accept All ]  [ Reject All ]        │
+└────────────────────────────────────────────────────┘
 ```
 
-**Features:**
 - Click filename → Preview diff in VS Code native view
-- Click ✓ → Apply this file
-- Click ✗ → Skip this file
-- [Accept All] / [Reject All] → Batch operations
+- ✓ / ✗ → Apply or skip individual files
+- Batch accept/reject all
 - Auto-accept pending changes when sending new message
 
-### 🌍 Multi-language Support
+### 🌍 Multi-language AI Output
 
-**New Setting:** `openclaw.aiOutputLanguage`
+**Setting:** `openclaw.aiOutputLanguage`
 - `auto` - Follow system language (default)
-- `zh-CN` - 简体中文
-- `en` - English
-- `ja` - 日本語
-- `ko` - 한국어
-
-AI responses automatically adapt to your selected language!
-
-### 🎨 UI Improvements
-- Compact icon buttons (✓ ✗) save space
-- Smart path truncation for long filenames
-- Status indicators (✅ applied, ⏭️ skipped)
-- Smooth animations for state changes
-
-## What's New in v0.1.9
-
-### 🎯 Project Skills & Workflows
-- **Auto-detection**: Automatically scans your workspace for `skills/` folders
-- **Skill Matching**: Triggers skills based on keywords in your messages
-- **Workflow Injection**: Injects workflow content into AI context
-- **Slash Commands**: Use `/init`, `/skills`, `/workflow` to manage project features
-
-### 🎨 Dark Mode Icons
-- Fixed icon visibility in dark themes
-- Icons now auto-adapt to VSCode theme
-
-### 🪟 Windows Platform
-- Supports 14+ OpenClaw installation paths
-- Auto-detects npm prefix
-- Fixes `.cmd` execution issues
-
-### 🔍 File Search
-- `@` search now matches filenames only (more precise)
-- Recursive scanning for skills and workflows
+- `zh-CN` / `en` / `ja` / `ko`
 
 ## Installation
 
@@ -124,12 +141,18 @@ Click the OpenClaw icon in the activity bar to open the chat sidebar.
 ### Popup Panel
 Run command "OpenClaw: Open Chat Panel" or click the 🦞 button in the status bar. You can open up to 5 panels simultaneously.
 
+### Model Switching
+
+Click the model selector in the chat toolbar to switch models per-session:
+- Each session remembers its model choice independently
+- Use "default" to reset to the global default model
+- Configure `openclaw.defaultModel` in settings for new sessions
+
 ### Project Skills & Workflows
 
 #### Skills
 Skills are auto-detected from any `skills/` folder in your workspace.
 
-**Structure:**
 ```
 project/
 ├── skills/
@@ -137,20 +160,6 @@ project/
 │   │   └── skill.md
 │   └── refactor/
 │       └── skill.md
-```
-
-**Skill Format (`skill.md`):**
-```markdown
----
-name: debug
-triggers:
-  - debug
-  - fix bug
-category: debugging
----
-
-# Debug Skill
-Instructions for debugging...
 ```
 
 **Usage:**
@@ -161,7 +170,6 @@ Instructions for debugging...
 #### Workflows
 Workflows are auto-detected from `workflows/` folder.
 
-**Structure:**
 ```
 project/
 └── workflows/
@@ -175,12 +183,14 @@ project/
 
 ### Slash Commands
 
-- `/init` - Initialize project (scan skills/workflows)
-- `/skills` - List all detected skills
-- `/workflow` - List all workflows
-- `/clear` - Clear chat history
-- `/<skill-name>` - Force use a specific skill (e.g., `/debug`)
-- `/.<workflow>` - Inject a workflow (e.g., `/.cursorrules`)
+| Command | Description |
+|---------|-------------|
+| `/init` | Initialize project (scan skills/workflows) |
+| `/skills` | List all detected skills |
+| `/workflow` | List all workflows |
+| `/clear` | Clear chat history |
+| `/<skill>` | Force use a specific skill |
+| `/.<workflow>` | Inject a workflow |
 
 ### File Reference
 
@@ -191,7 +201,7 @@ Type `@` in the input box to open file picker:
 
 ### Plan Mode vs Execute Mode
 - **Execute Mode** (default): AI can call tools and make changes
-- **Plan Mode**: AI outputs a plan only, waits for confirmation before executing
+- **Plan Mode**: AI outputs a plan only, waits for confirmation
 
 Toggle in the bottom toolbar.
 
@@ -204,11 +214,17 @@ Toggle in the bottom toolbar.
 
 Open VS Code Settings (`Ctrl+,`) and search for "OpenClaw":
 
-- `openclaw.gatewayUrl` - Gateway URL (default: `http://127.0.0.1:18789`)
-- `openclaw.openclawPath` - Path to openclaw binary (auto-detected if empty)
-- `openclaw.defaultSession` - Default session ID (default: `main`)
-- `openclaw.planMode` - Default to Plan Mode (default: `false`)
-- `openclaw.aiOutputLanguage` - AI response language (default: `auto`) **NEW**
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `openclaw.gatewayUrl` | `http://127.0.0.1:18789` | Gateway URL |
+| `openclaw.gatewayToken` | | Gateway authentication token |
+| `openclaw.openclawPath` | (auto-detect) | Path to openclaw binary |
+| `openclaw.defaultSession` | `main` | Default session ID |
+| `openclaw.defaultModel` | | Default model for new sessions |
+| `openclaw.planMode` | `false` | Default to Plan Mode |
+| `openclaw.aiOutputLanguage` | `auto` | AI response language |
+| `openclaw.autoRefreshInterval` | `1000` | Auto-refresh interval (ms, 0 to disable) |
+| `openclaw.enableCliFallback` | `true` | Enable CLI fallback when WebSocket fails |
 
 ## Development
 
@@ -232,31 +248,35 @@ npx @vscode/vsce package
 
 ### Connection Failed
 
-**Symptom**: "OpenClaw: 连接失败 - Cannot find openclaw"
+**Symptom**: Red dot in title bar, "连接失败"
 
 **Solution**:
 1. Ensure OpenClaw is installed: `openclaw --version`
-2. On Windows, configure the path in VS Code settings
-3. Check Gateway is running: `openclaw gateway status`
+2. Check Gateway is running: `openclaw gateway status`
+3. On Windows, configure the binary path in VS Code settings
+4. Verify Gateway URL matches your config
 
 ### Skills Not Detected
 
-**Solution**:
 1. Ensure you have a `skills/` folder in your workspace
 2. Run `/init` command to force re-scan
 3. Check skill.md format (YAML frontmatter required)
 
-### Dark Mode Icons Not Visible
+### Model Switch Not Working
 
-**Solution**: Update to v0.1.9 or later
+- The extension uses `/model` command via WebSocket (most reliable)
+- If WebSocket fails, CLI fallback is used automatically
+- Check `openclaw.enableCliFallback` is enabled (default: true)
 
 ## Roadmap
 
-- [ ] Gateway WebSocket API support
-- [ ] Streaming output UI
+- [x] Gateway WebSocket API support
+- [x] Streaming output UI
+- [x] Multi-session management
+- [x] Publish to Open VSX
 - [ ] Custom keybindings
-- [ ] Multi-session management
-- [ ] Publish to VSCode Marketplace
+- [ ] Inline diff editing
+- [ ] Voice input support
 
 ## Contributing
 
@@ -275,35 +295,18 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 ## 功能特性
 
 - 💬 **与 AI 对话** - 侧边栏和弹出面板聊天界面
-- 🎯 **技能集成** - 自动检测并使用项目技能
-- 📋 **工作流支持** - 注入并执行项目工作流
-- 📋 **计划模式 / 执行模式** - 控制 AI 何时可以执行操作
-- 📎 **文件和图片附件** - 将代码文件和图片附加到消息中
-- 🖼️ **图片粘贴** - 直接从剪贴板粘贴图片
+- 🔄 **变更预览与应用** - 可视化预览和应用代码变更
+- 🎯 **会话级模型切换** - 每个会话独立模型，多窗口互不干扰
+- 🔌 **实时连接状态** - WebSocket 连接状态指示器
+- 📨 **消息队列** - AI 回复时可继续发送，自动排队
+- 🔧 **工具调用展示** - 实时工具调用反馈
+- 💡 **友好错误提示** - 智能分类错误并提供解决建议
+- 🎯 **技能与工作流集成** - 自动检测并使用项目技能
+- 📎 **文件和图片附件** - 附加代码文件和图片
+- 🖼️ **图片粘贴** - 从剪贴板直接粘贴图片
 - 🔄 **多窗口支持** - 最多 5 个并行聊天会话
-- 🌍 **多语言** - 根据系统语言显示中文或英文界面
-- 🪟 **Windows 支持** - 增强的 Windows 兼容性（95% 覆盖率）
-
-## v0.1.9 新特性
-
-### 🎯 项目技能与工作流
-- **自动检测**：自动扫描工作区中的 `skills/` 文件夹
-- **技能匹配**：根据消息中的关键词触发技能
-- **工作流注入**：将工作流内容注入 AI 上下文
-- **斜杠命令**：使用 `/init`、`/skills`、`/workflow` 管理项目功能
-
-### 🎨 深色模式图标
-- 修复深色主题下图标可见性
-- 图标自动适配 VSCode 主题
-
-### 🪟 Windows 平台
-- 支持 14+ OpenClaw 安装路径
-- 自动检测 npm prefix
-- 修复 `.cmd` 执行问题
-
-### 🔍 文件搜索
-- `@` 搜索现在只匹配文件名（更精确）
-- 递归扫描技能和工作流
+- 🌍 **多语言** - 界面和 AI 输出完整国际化
+- 🪟 **Windows 支持** - 95% 平台兼容性
 
 ## 安装
 
@@ -326,22 +329,6 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 必须安装并运行 [OpenClaw](https://github.com/openclaw/openclaw)
 - Gateway 需要在 `http://127.0.0.1:18789` 可访问
 
-### Windows 用户
-
-如遇 "Cannot find openclaw" 错误：
-
-1. 查找 OpenClaw 路径：
-   ```cmd
-   where openclaw
-   ```
-
-2. 在 VS Code 设置中配置 (`Ctrl+,`)：
-   - 搜索 "OpenClaw: Openclaw Path"
-   - 输入路径，例如：
-     - npm: `C:\Users\YourName\AppData\Roaming\npm\openclaw.cmd`
-     - scoop: `C:\Users\YourName\scoop\shims\openclaw.cmd`
-     - chocolatey: `C:\ProgramData\chocolatey\bin\openclaw.exe`
-
 ## 使用方法
 
 ### 侧边栏聊天
@@ -350,142 +337,39 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 ### 弹出面板
 运行命令 "OpenClaw: Open Chat Panel" 或点击状态栏中的 🦞 按钮。可以同时打开最多 5 个面板。
 
-### 项目技能与工作流
+### 模型切换
 
-#### 技能
-技能会从工作区中的任意 `skills/` 文件夹自动检测。
+点击聊天工具栏中的模型选择器，按会话切换模型：
+- 每个会话独立记忆模型选择
+- 选择 "default" 恢复全局默认模型
+- 在设置中配置 `openclaw.defaultModel` 设定新会话默认模型
 
-**目录结构：**
-```
-project/
-├── skills/
-│   ├── debug/
-│   │   └── skill.md
-│   └── refactor/
-│       └── skill.md
-```
+### 配置
 
-**技能格式 (`skill.md`)：**
-```markdown
----
-name: debug
-triggers:
-  - debug
-  - fix bug
-category: debugging
----
+打开 VS Code 设置 (`Ctrl+,`) 搜索 "OpenClaw"：
 
-# Debug Skill
-调试说明...
-```
-
-**使用方式：**
-- 输入触发关键词："help me debug this code"
-- 或使用斜杠命令：`/debug`
-- 或运行 `/skills` 列出所有可用技能
-
-#### 工作流
-工作流从 `workflows/` 文件夹自动检测。
-
-**目录结构：**
-```
-project/
-└── workflows/
-    ├── .cursorrules
-    └── code-review.md
-```
-
-**使用方式：**
-- 使用斜杠前缀：`/.cursorrules what should I do?`
-- 或运行 `/workflow` 列出所有工作流
-
-### 斜杠命令
-
-- `/init` - 初始化项目（扫描技能/工作流）
-- `/skills` - 列出所有检测到的技能
-- `/workflow` - 列出所有工作流
-- `/clear` - 清空聊天历史
-- `/<技能名>` - 强制使用特定技能（如 `/debug`）
-- `/.<工作流>` - 注入工作流（如 `/.cursorrules`）
-
-### 文件引用
-
-在输入框中输入 `@` 打开文件选择器：
-- 按文件名搜索
-- 拖放文件
-- 从剪贴板粘贴图片
-
-### 计划模式 vs 执行模式
-- **执行模式**（默认）：AI 可以调用工具并进行更改
-- **计划模式**：AI 只输出计划，等待确认后才执行
-
-在底部工具栏中切换。
-
-### 快捷键
-- `Enter` - 发送消息
-- `Shift+Enter` - 换行
-- 输入 `@` - 打开文件选择器
-
-## 配置
-
-打开 VS Code 设置 (`Ctrl+,`) 并搜索 "OpenClaw"：
-
-- `openclaw.gatewayUrl` - Gateway 地址（默认：`http://127.0.0.1:18789`）
-- `openclaw.openclawPath` - openclaw 二进制文件路径（留空自动检测）
-- `openclaw.defaultSession` - 默认会话 ID（默认：`main`）
-- `openclaw.planMode` - 默认使用计划模式（默认：`false`）
+| 设置项 | 默认值 | 描述 |
+|--------|--------|------|
+| `openclaw.gatewayUrl` | `http://127.0.0.1:18789` | Gateway 地址 |
+| `openclaw.gatewayToken` | | Gateway 认证 Token |
+| `openclaw.openclawPath` | (自动检测) | openclaw 二进制文件路径 |
+| `openclaw.defaultSession` | `main` | 默认会话 ID |
+| `openclaw.defaultModel` | | 新会话默认模型 |
+| `openclaw.planMode` | `false` | 默认使用计划模式 |
+| `openclaw.aiOutputLanguage` | `auto` | AI 输出语言 |
+| `openclaw.autoRefreshInterval` | `1000` | 自动刷新间隔（ms，0 禁用） |
+| `openclaw.enableCliFallback` | `true` | WebSocket 失败时启用 CLI 兜底 |
 
 ## 开发
 
 ```bash
-# 克隆并安装
 git clone https://github.com/shenyingjun5/openclaw-vscode
 cd openclaw-vscode
 npm install
-
-# 编译
 npm run compile
-
-# 监视模式
-npm run watch
-
-# 打包
-npx @vscode/vsce package
+npm run watch    # 监视模式
+npx @vscode/vsce package  # 打包
 ```
-
-## 故障排查
-
-### 连接失败
-
-**症状**："OpenClaw: 连接失败 - Cannot find openclaw"
-
-**解决方案**：
-1. 确保已安装 OpenClaw：`openclaw --version`
-2. Windows 用户需在 VS Code 设置中配置路径
-3. 检查 Gateway 是否运行：`openclaw gateway status`
-
-### 技能未检测到
-
-**解决方案**：
-1. 确保工作区中有 `skills/` 文件夹
-2. 运行 `/init` 命令强制重新扫描
-3. 检查 skill.md 格式（需要 YAML frontmatter）
-
-### 深色模式图标不可见
-
-**解决方案**：更新到 v0.1.9 或更高版本
-
-## 路线图
-
-- [ ] Gateway WebSocket API 支持
-- [ ] 流式输出 UI
-- [ ] 自定义快捷键
-- [ ] 多会话管理
-- [ ] 发布到 VSCode 市场
-
-## 贡献
-
-欢迎贡献！请提交 Issue 或 PR。
 
 ## 许可证
 

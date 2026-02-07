@@ -35,6 +35,7 @@ export interface MessageBuildResult {
  */
 export class ChatSessionManager {
     private _projectConfig: ProjectConfig | null = null;
+    private _languageSentSessions = new Set<string>();
 
     constructor(
         private readonly _extensionUri: vscode.Uri
@@ -179,14 +180,15 @@ export class ChatSessionManager {
             sessionId
         );
 
-        // 添加语言指令
+        // 仅在会话首条消息时添加语言指令
         const languageManager = LanguageManager.getInstance();
         const languageInstruction = languageManager.getLanguageInstruction();
         
         let finalMessage = message;
-        if (languageInstruction) {
-            // 将语言指令添加到消息开头
+        if (languageInstruction && !this._languageSentSessions.has(sessionId)) {
+            // 将语言指令添加到消息开头（仅第一次）
             finalMessage = `${languageInstruction}\n\n${message}`;
+            this._languageSentSessions.add(sessionId);
         }
 
         return {
@@ -201,6 +203,7 @@ export class ChatSessionManager {
     resetSession(sessionId: string): void {
         const builder = getMessageBuilder();
         builder.resetSession(sessionId);
+        this._languageSentSessions.delete(sessionId);
     }
 
     /**
@@ -320,18 +323,43 @@ export class ChatSessionManager {
     }
 
     /**
-     * 加载会话历史（清理 think/final 标签）
+     * 加载会话历史（清理 think/final 标签，保留工具调用）
+     * limit: 200 对齐 webchat
      */
-    async loadHistory(gateway: any, sessionId: string): Promise<Array<{ role: string; content: string }>> {
+    async loadHistory(gateway: any, sessionId: string): Promise<Array<{ role: string; content: string; toolCall?: any }>> {
         try {
-            const history = await gateway.getHistory(sessionId);
+            const history = await gateway.getHistory(sessionId, 200);
+
+            // 如果有历史记录，说明不是新会话，标记语言指令已发送
+            if (history && history.length > 0) {
+                this._languageSentSessions.add(sessionId);
+            }
+
             return history.map((msg: any) => {
                 let content = msg.content;
+                
+                // 处理 content 数组格式（Gateway 返回 [{type, text}] 结构）
+                if (Array.isArray(content)) {
+                    content = content
+                        .filter((c: any) => c.type === 'text' || c.type === 'output_text')
+                        .map((c: any) => c.text || '')
+                        .join('');
+                }
+                
+                // 字符串格式兜底
+                content = String(content || '');
                 content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
                 content = content.replace(/<\/?final>/g, '');
                 content = content.trim();
-                return { role: msg.role, content };
-            }).filter((m: any) => m.content);
+                
+                // 🔧 保留工具调用信息
+                const result: any = { role: msg.role, content };
+                if (msg.toolCall) {
+                    result.toolCall = msg.toolCall;
+                }
+                
+                return result;
+            }).filter((m: any) => m.content || m.toolCall);
         } catch (err) {
             return [];
         }

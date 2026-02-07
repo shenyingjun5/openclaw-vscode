@@ -11,6 +11,7 @@ let chatProvider: ChatViewProvider;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('OpenClaw extension is now active!');
+    console.log(`[OpenClaw DEBUG] vscode.env.language = "${vscode.env.language}"`);
 
     // 初始化服务
     const languageManager = LanguageManager.getInstance();

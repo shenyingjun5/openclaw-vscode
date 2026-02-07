@@ -79,13 +79,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     ) {
         // Use VS Code window session ID for isolation between multiple windows
         const windowId = vscode.env.sessionId.slice(0, 8);
-        this._sessionId = `vscode-${windowId}`;
+        this._sessionId = `vscode-main-${windowId}`;
 
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
 
         // 初始化 SessionManager
         this._sessionManager = new ChatSessionManager(_extensionUri);
+        
+        // 🔧 监听工具调用事件
+        this._setupToolCallListener();
+    }
+    
+    private _setupToolCallListener() {
+        // 如果 gateway 使用 WebSocket 模式，监听工具调用事件
+        const wsClient = (this._gateway as any)._wsClient;
+        if (wsClient) {
+            wsClient.on('tool.call', (payload: { name: string; args?: any }) => {
+                this._view?.webview.postMessage({
+                    type: 'addToolCall',
+                    name: payload.name,
+                    args: payload.args
+                });
+            });
+        }
     }
 
     private async _initProjectConfig(forceRescan = false) {
@@ -141,6 +158,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         type: 'updatePlanMode',
                         enabled: this._planMode
                     });
+                    
+                    // 主动建立连接并更新状态
+                    await this._ensureConnection();
                     break;
 
                 case 'sendMessage':
@@ -154,10 +174,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     this._gateway.stop();
                     this._isSending = false;
                     this._view?.webview.postMessage({ type: 'sendingComplete' });
+                    // 发送停止提示
+                    this._view?.webview.postMessage({
+                        type: 'systemMessage',
+                        error: {
+                            message: 'stopped',
+                            context: 'user_stop'
+                        }
+                    });
                     break;
 
                 case 'refresh':
                     await this._loadHistory();
+                    // 发送刷新完成消息
+                    this._view?.webview.postMessage({ type: 'refreshComplete' });
+                    // 更新连接状态
+                    this._checkConnection();
+                    break;
+
+                case 'checkConnection':
+                    this._checkConnection();
+                    break;
+
+                case 'getAutoRefreshInterval':
+                    const interval = vscode.workspace.getConfiguration('openclaw').get('autoRefreshInterval', 10000);
+                    this._view?.webview.postMessage({ 
+                        type: 'autoRefreshInterval', 
+                        interval: interval 
+                    });
                     break;
 
                 case 'openSettings':
@@ -185,7 +229,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'setModel':
-                    this._gateway.setSessionModel(this._sessionId, data.model);
+                    try {
+                        await this._gateway.setSessionModel(this._sessionId, data.model);
+                        vscode.window.showInformationMessage(`模型已切换为: ${data.model}`);
+                    } catch (err: any) {
+                        vscode.window.showErrorMessage(`模型切换失败: ${err.message || err}`);
+                    }
                     break;
 
                 case 'initProject':
@@ -282,7 +331,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 forceWorkflow = true;
                 actualContent = rest;
             } else {
-                // Try as skill name
+                // Try as skill name — 只在技能存在时才拆分
                 forceSkillName = prefix;
                 actualContent = rest;
             }
@@ -295,6 +344,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             forceSkillName,
             forceWorkflow
         );
+
+        // 如果 /xxx 没命中任何技能，按原文放行给 AI
+        const effectiveMessage = (forceSkillName && !triggeredSkill)
+            ? this._sessionManager.buildMessage(content, this._sessionId, undefined, false).message
+            : finalMessage;
 
         // Notify UI about triggered skill
         if (triggeredSkill) {
@@ -310,7 +364,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         // Add plan mode suffix if needed
-        let messageToSend = finalMessage;
+        let messageToSend = effectiveMessage;
+
+        // 空消息检查（如 /mode 等无内容的斜杠命令）
+        if (!messageToSend.trim()) {
+            this._view?.webview.postMessage({
+                type: 'error',
+                content: '消息内容为空',
+                context: 'send'
+            });
+            this._isSending = false;
+            this._view?.webview.postMessage({ type: 'sendingComplete' });
+            return;
+        }
+
         if (this._planMode) {
             const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
             const isConfirm = confirmCommands.some(cmd =>
@@ -366,7 +433,8 @@ Violation = Task failed
         } catch (err: any) {
             this._view?.webview.postMessage({
                 type: 'error',
-                content: `${t('sendFailed')}: ${err.message}`
+                content: err.message || String(err),
+                context: 'send'
             });
         } finally {
             this._isSending = false;
@@ -447,6 +515,40 @@ Violation = Task failed
             type: 'loadHistory',
             messages
         });
+    }
+
+    private _checkConnection() {
+        // 检查 Gateway 连接状态
+        const isConnected = this._gateway.isConnected();
+        this._view?.webview.postMessage({
+            type: 'connectionStatus',
+            status: isConnected ? 'connected' : 'disconnected'
+        });
+    }
+
+    private async _ensureConnection() {
+        try {
+            // 发送连接中状态
+            this._view?.webview.postMessage({
+                type: 'connectionStatus',
+                status: 'connecting'
+            });
+            
+            // 尝试连接
+            await this._gateway.connect();
+            
+            // 连接成功
+            this._view?.webview.postMessage({
+                type: 'connectionStatus',
+                status: 'connected'
+            });
+        } catch (err) {
+            // 连接失败
+            this._view?.webview.postMessage({
+                type: 'connectionStatus',
+                status: 'disconnected'
+            });
+        }
     }
 
     private async _handleGetFiles() {

@@ -98,17 +98,19 @@
             modeSelect.options[0].textContent = i18n.executeMode;
             modeSelect.options[1].textContent = i18n.planMode;
         }
-        // Model select default option
-        const modelSelect = document.getElementById('modelSelect');
-        if (modelSelect && modelSelect.options[0]) {
-            modelSelect.options[0].textContent = i18n.defaultModel;
-        }
     }
 
     // State
     let isSending = false;
     let planMode = false;
     let attachments = []; // { type: 'file'|'image'|'reference', name, path?, data? }
+    let messageQueue = []; // 消息队列: { id, text, attachments, createdAt }
+    let queueIdCounter = 0; // 队列 ID 计数器
+    let connectionStatus = 'disconnected'; // 连接状态: connected/disconnected/connecting
+    let isRefreshing = false; // 是否正在刷新
+    let chatLoading = false; // 是否正在加载历史（对齐 webchat）
+    let autoRefreshTimer = null; // 自动刷新定时器
+    let currentSessionModel = null; // 当前会话的模型（会话级状态）
 
     // DOM elements
     const messagesContainer = document.getElementById('messagesContainer');
@@ -123,6 +125,10 @@
     const modeSelect = document.getElementById('modeSelect');
     const modelSelect = document.getElementById('modelSelect');
     const filePickerOverlay = document.getElementById('filePickerOverlay');
+    const queueContainer = document.getElementById('queueContainer');
+    const queueList = document.getElementById('queueList');
+    const queueCount = document.getElementById('queueCount');
+    const statusIndicator = document.getElementById('statusIndicator');
     const filePickerSearch = document.getElementById('filePickerSearch');
     const filePickerList = document.getElementById('filePickerList');
     const closeFilePicker = document.getElementById('closeFilePicker');
@@ -338,19 +344,422 @@
         messageInput.style.height = Math.min(messageInput.scrollHeight, maxHeight) + 'px';
     }
 
+    // ========== 队列管理 ==========
+
+    function generateQueueId() {
+        return `queue-${++queueIdCounter}`;
+    }
+
+    function enqueueMessage(text, atts) {
+        const item = {
+            id: generateQueueId(),
+            text: text,
+            attachments: atts ? [...atts] : [],
+            createdAt: Date.now()
+        };
+        
+        messageQueue.push(item);
+        renderQueue();
+    }
+
+    function removeQueueItem(id) {
+        const index = messageQueue.findIndex(item => item.id === id);
+        if (index !== -1) {
+            // 添加删除动画
+            const itemEl = document.querySelector(`[data-queue-id="${id}"]`);
+            if (itemEl) {
+                itemEl.classList.add('removing');
+                setTimeout(() => {
+                    messageQueue.splice(index, 1);
+                    renderQueue();
+                }, 200);
+            } else {
+                messageQueue.splice(index, 1);
+                renderQueue();
+            }
+        }
+    }
+
+    function renderQueue() {
+        const count = messageQueue.length;
+        queueCount.textContent = count;
+        
+        if (count === 0) {
+            queueContainer.style.display = 'none';
+            queueList.innerHTML = '';
+            return;
+        }
+        
+        queueContainer.style.display = 'block';
+        
+        queueList.innerHTML = messageQueue.map(item => {
+            const hasAttachments = item.attachments && item.attachments.length > 0;
+            const displayText = item.text || (hasAttachments ? `📎 ${item.attachments.length} 个附件` : '');
+            
+            return `
+                <div class="chat-queue__item" data-queue-id="${item.id}">
+                    <div class="chat-queue__text">${escapeHtml(displayText)}</div>
+                    <button class="chat-queue__remove" 
+                            onclick="window.removeQueueItem('${item.id}')" 
+                            title="${i18n.removeFromQueue || 'Remove from queue'}">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function processNextQueue() {
+        if (messageQueue.length === 0) return;
+        if (isSending) return;
+        
+        const next = messageQueue.shift();
+        renderQueue();
+        
+        // 发送队列中的消息
+        sendMessageNow(next.text, next.attachments);
+    }
+
+    // 暴露到 window 供按钮调用
+    window.removeQueueItem = removeQueueItem;
+
+    // ========== 连接状态管理 ==========
+
+    function updateConnectionStatus(status) {
+        connectionStatus = status;
+        statusIndicator.classList.remove('connected', 'disconnected', 'connecting');
+        
+        if (status === 'connected') {
+            statusIndicator.classList.add('connected');
+            statusIndicator.title = 'Gateway 已连接 (WebSocket)';
+        } else if (status === 'connecting') {
+            statusIndicator.classList.add('connecting');
+            statusIndicator.title = '正在连接到 Gateway...';
+        } else {
+            statusIndicator.classList.add('disconnected');
+            statusIndicator.title = 'Gateway 未连接 - 点击刷新重连';
+        }
+        // 连接状态变化时更新刷新按钮
+        updateRefreshButtonDisabled();
+    }
+
+    function setRefreshButtonState(refreshing) {
+        isRefreshing = refreshing;
+        if (refreshing) {
+            refreshBtn.classList.add('refreshing');
+        } else {
+            refreshBtn.classList.remove('refreshing');
+        }
+    }
+
+    // ========== 自动刷新 ==========
+
+    /**
+     * 是否可以执行刷新（手动 & 自动共用条件，对齐 webchat）
+     */
+    function canRefresh() {
+        return !chatLoading && connectionStatus === 'connected';
+    }
+
+    /**
+     * 更新刷新按钮的 disabled 状态
+     */
+    function updateRefreshButtonDisabled() {
+        if (refreshBtn) {
+            refreshBtn.disabled = !canRefresh();
+        }
+    }
+
+    async function refreshSession() {
+        if (isRefreshing) return;
+        if (!canRefresh()) return;
+        
+        chatLoading = true;
+        updateRefreshButtonDisabled();
+        setRefreshButtonState(true);
+        
+        try {
+            // 请求后端刷新
+            vscode.postMessage({ type: 'refresh' });
+        } catch (err) {
+            console.error('Refresh failed:', err);
+            chatLoading = false;
+            updateRefreshButtonDisabled();
+        }
+    }
+
+    function startAutoRefresh(interval) {
+        stopAutoRefresh();
+        
+        if (interval <= 0) return;
+        
+        autoRefreshTimer = setInterval(() => {
+            // 自动刷新使用和手动刷新相同的条件
+            if (canRefresh() && !isRefreshing) {
+                refreshSession();
+            }
+        }, interval);
+    }
+
+    function stopAutoRefresh() {
+        if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+    }
+
+    // ========== 错误处理 ==========
+
+    function parseErrorToMessage(error, context) {
+        const errorStr = String(error.message || error);
+        
+        // 1. 用户停止
+        if (context === 'user_stop' || 
+            (errorStr.includes('exited with code 1') && context === 'stop')) {
+            return {
+                type: 'system',
+                icon: '⏹️',
+                color: 'gray',
+                text: '已停止生成',
+                autoHide: true
+            };
+        }
+        
+        // 2. 连接错误
+        if (errorStr.includes('ECONNREFUSED') || errorStr.includes('connect ECONNREFUSED')) {
+            return {
+                type: 'error',
+                icon: '❌',
+                color: 'red',
+                text: `无法连接到 Gateway
+
+可能原因：
+• Gateway 未启动
+• 端口 18789 被占用
+
+请执行：
+openclaw gateway start`
+            };
+        }
+        
+        // 3. 超时
+        if (errorStr.includes('ETIMEDOUT') || errorStr.includes('timeout')) {
+            return {
+                type: 'warning',
+                icon: '⚠️',
+                color: 'yellow',
+                text: `请求超时
+
+网络响应过慢，请：
+• 检查网络连接
+• 稍后重试`
+            };
+        }
+        
+        // 4. WebSocket 连接错误（排除发送层面的错误）
+        if (errorStr.includes('WebSocket') && errorStr.includes('连接')) {
+            return {
+                type: 'error',
+                icon: '❌',
+                color: 'red',
+                text: `WebSocket 连接失败
+
+可能原因：
+• Gateway 版本过低
+• 防火墙拦截
+
+请尝试：
+• 升级 OpenClaw: npm update -g openclaw
+• 检查防火墙设置`
+            };
+        }
+        
+        // 5. Token 不足
+        if (errorStr.includes('token limit') || 
+            errorStr.includes('quota exceeded') ||
+            errorStr.includes('insufficient tokens')) {
+            return {
+                type: 'tip',
+                icon: '💡',
+                color: 'yellow',
+                text: `当前模型 Token 已用完
+
+请切换模型：
+1. 点击右下角模型选择器
+2. 选择其他可用模型`
+            };
+        }
+        
+        // 6. 模型不可用
+        if (errorStr.includes('model not available') || 
+            errorStr.includes('model unavailable')) {
+            const modelMatch = errorStr.match(/model[:\s]+([a-z0-9-]+)/i);
+            const modelName = modelMatch ? modelMatch[1] : '当前模型';
+            
+            return {
+                type: 'tip',
+                icon: '💡',
+                color: 'yellow',
+                text: `${modelName} 暂时不可用
+
+可能原因：
+• 服务器负载过高
+• 模型维护中
+
+建议：切换到其他模型（如 gpt-4o-mini）`
+            };
+        }
+        
+        // 7. 频率限制
+        if (errorStr.includes('rate limit') || 
+            errorStr.includes('too many requests')) {
+            return {
+                type: 'warning',
+                icon: '⚠️',
+                color: 'yellow',
+                text: `请求过于频繁
+
+已达到速率限制，请：
+• 等待 30 秒后重试
+• 或切换到其他模型`
+            };
+        }
+        
+        // 8. 命令未找到
+        if (errorStr.includes('command not found') || 
+            errorStr.includes('not recognized')) {
+            return {
+                type: 'error',
+                icon: '❌',
+                color: 'red',
+                text: `OpenClaw CLI 未找到
+
+请安装：
+npm install -g openclaw
+
+或在 VSCode 设置中配置 openclaw 路径：
+设置 → OpenClaw → Openclaw Path`
+            };
+        }
+        
+        // 9. 权限错误
+        if (errorStr.includes('EACCES') || 
+            errorStr.includes('permission denied')) {
+            return {
+                type: 'error',
+                icon: '❌',
+                color: 'red',
+                text: `权限不足
+
+无法访问文件或执行命令，请：
+• 检查文件权限
+• 在 macOS/Linux 使用: sudo npm install -g openclaw
+• 在 Windows 使用管理员权限`
+            };
+        }
+        
+        // 10. 网络错误
+        if (errorStr.includes('ENOTFOUND')) {
+            return {
+                type: 'error',
+                icon: '❌',
+                color: 'red',
+                text: `网络错误
+
+无法解析服务器地址，请：
+• 检查网络连接
+• 检查 Gateway URL 配置（设置 → OpenClaw → Gateway URL）`
+            };
+        }
+        
+        // 11. 未知错误
+        const shortError = errorStr.length > 100 ? 
+            errorStr.substring(0, 100) + '...' : errorStr;
+        
+        return {
+            type: 'error',
+            icon: '❌',
+            color: 'red',
+            text: `发生错误
+
+${shortError}
+
+请尝试：
+• 刷新页面重试
+• 查看 OpenClaw 日志: openclaw logs`
+        };
+    }
+
+    function showSystemMessage(icon, text, color, autoHide = false) {
+        const msg = document.createElement('div');
+        msg.className = `message system ${color}`;
+        if (autoHide) {
+            msg.classList.add('auto-hide');
+        }
+        
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'icon';
+        iconSpan.textContent = icon;
+        
+        const content = document.createElement('div');
+        content.className = 'content';
+        content.textContent = text;
+        
+        msg.appendChild(iconSpan);
+        msg.appendChild(content);
+        
+        messages.appendChild(msg);
+        messages.scrollTop = messages.scrollHeight;
+        
+        // 自动移除
+        if (autoHide) {
+            setTimeout(() => msg.remove(), 2500);
+        }
+    }
+
+    function handleError(error, context) {
+        const errorMsg = parseErrorToMessage(error, context);
+        
+        showSystemMessage(
+            errorMsg.icon,
+            errorMsg.text,
+            errorMsg.color,
+            errorMsg.autoHide || false
+        );
+    }
+
     // Send message
     function sendMessage() {
         const text = messageInput.value.trim();
         if (!text && attachments.length === 0) return;
-        if (isSending) return;
 
+        if (isSending) {
+            // 正在发送中 → 加入队列
+            enqueueMessage(text, attachments);
+            
+            // 清空输入框
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            attachments = [];
+            updateAttachments();
+            return;
+        }
+
+        // 空闲状态 → 立即发送
+        sendMessageNow(text, attachments);
+    }
+
+    // 实际发送消息（立即）
+    function sendMessageNow(text, atts) {
         // Build message content
         let fullMessage = text;
         
         // Add file references
-        const fileRefs = attachments.filter(a => a.type === 'file').map(a => `- ${a.path}`);
-        const references = attachments.filter(a => a.type === 'reference').map(a => `- ${a.path}`);
-        const images = attachments.filter(a => a.type === 'image');
+        const fileRefs = atts.filter(a => a.type === 'file').map(a => `- ${a.path}`);
+        const references = atts.filter(a => a.type === 'reference').map(a => `- ${a.path}`);
+        const images = atts.filter(a => a.type === 'image');
         
         if (fileRefs.length > 0 || references.length > 0) {
             const allRefs = [...fileRefs, ...references];
@@ -364,13 +773,15 @@
         }
 
         // Show user message with attachments
-        addMessage('user', text || '[附件]', attachments.length > 0 ? [...attachments] : null);
+        addMessage('user', text || '[附件]', atts.length > 0 ? [...atts] : null);
         
-        // Clear input
-        messageInput.value = '';
-        messageInput.style.height = 'auto';
-        attachments = [];
-        updateAttachments();
+        // Clear input if called from sendMessage (not from queue)
+        if (atts === attachments) {
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            attachments = [];
+            updateAttachments();
+        }
 
         // Send
         isSending = true;
@@ -698,12 +1109,21 @@
 
     messageInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            if (isSending) {
-                stopGeneration();
-            } else {
-                sendMessage();
+            // 输入法正在组字时（如中文拼音），不响应回车
+            if (e.isComposing || e.keyCode === 229) {
+                return;
             }
+            e.preventDefault();
+            
+            const text = messageInput.value.trim();
+            
+            // 输入框为空 → 不做任何动作
+            if (!text && attachments.length === 0) {
+                return;
+            }
+            
+            // 有内容 → 发送（可能排队）
+            sendMessage();
         }
     });
 
@@ -757,7 +1177,7 @@
 
     // Refresh button
     refreshBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'refresh' });
+        refreshSession();
     });
 
     // Settings button
@@ -773,11 +1193,19 @@
 
     // Model select
     modelSelect.addEventListener('change', (e) => {
-        vscode.postMessage({ type: 'setModel', model: e.target.value });
+        const newModel = e.target.value;
+        
+        // 记住会话级的模型选择
+        currentSessionModel = newModel;
+        
+        // 立即更新 UI
         if (window._modelData) {
-            window._modelData.forEach(m => m.selected = m.id === e.target.value);
+            window._modelData.forEach(m => m.selected = m.id === newModel);
+            renderModelOptions(false);
         }
-        renderModelOptions(false);
+        
+        // 发送到 Backend
+        vscode.postMessage({ type: 'setModel', model: newModel });
     });
 
     modelSelect.addEventListener('focus', () => renderModelOptions(true));
@@ -845,13 +1273,30 @@
                 isSending = false;
                 updateSendButtonState();
                 hideThinking();
+                
+                // 自动处理下一个队列项
+                setTimeout(() => {
+                    processNextQueue();
+                }, 500);
                 break;
                 
             case 'error':
                 hideThinking();
                 isSending = false;
                 updateSendButtonState();
-                addMessage('error', message.content);
+                
+                // 使用友好的错误提示
+                handleError(message.content, message.context || 'send');
+                
+                // 出错时也尝试处理下一个队列项
+                setTimeout(() => {
+                    processNextQueue();
+                }, 1000);
+                break;
+                
+            case 'systemMessage':
+                // 系统消息（停止、提示等）
+                handleError(message.error.message, message.error.context);
                 break;
                 
             case 'files':
@@ -895,6 +1340,11 @@
                             addMessage(msg.role, msg.content);
                         }
                     });
+                    
+                    // 刷新后滚动到底部
+                    setTimeout(() => {
+                        messages.scrollTop = messages.scrollHeight;
+                    }, 100);
                 }
                 break;
                 
@@ -902,9 +1352,19 @@
                 window._modelData = message.models.map(m => ({
                     id: m.id,
                     fullName: m.name,
-                    shortName: m.id === 'default' ? i18n.defaultModel : (m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id),
-                    selected: m.selected
+                    shortName: m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id,
+                    // 如果会话有自己的模型状态，使用会话状态；否则使用全局默认
+                    selected: currentSessionModel ? (m.id === currentSessionModel) : m.selected
                 }));
+                
+                // 如果会话还没有设置模型，使用全局默认
+                if (!currentSessionModel) {
+                    const defaultModel = window._modelData.find(m => m.selected);
+                    if (defaultModel) {
+                        currentSessionModel = defaultModel.id;
+                    }
+                }
+                
                 renderModelOptions(false);
                 break;
                 
@@ -929,6 +1389,23 @@
                 // 渲染变更卡片
                 hideThinking();
                 renderChangeCard(message.changeSet);
+                break;
+                
+            case 'connectionStatus':
+                // 连接状态更新
+                updateConnectionStatus(message.status);
+                break;
+                
+            case 'autoRefreshInterval':
+                // 自动刷新间隔配置
+                startAutoRefresh(message.interval);
+                break;
+                
+            case 'refreshComplete':
+                // 刷新完成
+                chatLoading = false;
+                setRefreshButtonState(false);
+                updateRefreshButtonDisabled();
                 break;
         }
     });
@@ -996,3 +1473,11 @@
             messages.scrollTop = messages.scrollHeight;
         }, 100);
     }
+
+    // ========== 初始化 ==========
+    
+    // 页面加载完成后初始化
+    setTimeout(() => {
+        // 请求自动刷新配置（连接状态会在 ready 时自动建立）
+        vscode.postMessage({ type: 'getAutoRefreshInterval' });
+    }, 100);
