@@ -111,6 +111,15 @@
     let chatLoading = false; // 是否正在加载历史（对齐 webchat）
     let autoRefreshTimer = null; // 自动刷新定时器
     let currentSessionModel = null; // 当前会话的模型（会话级状态）
+    let currentThinkLevel = 'medium'; // 当前思考深度（会话级状态）
+
+    // xhigh 支持的模型列表
+    const XHIGH_MODELS = [
+        'openai/gpt-5.2',
+        'openai-codex/gpt-5.3-codex',
+        'openai-codex/gpt-5.2-codex',
+        'openai-codex/gpt-5.1-codex'
+    ];
 
     // DOM elements
     const messagesContainer = document.getElementById('messagesContainer');
@@ -124,6 +133,7 @@
     const inputBox = document.getElementById('inputBox');
     const modeSelect = document.getElementById('modeSelect');
     const modelSelect = document.getElementById('modelSelect');
+    const thinkSelect = document.getElementById('thinkSelect');
     const filePickerOverlay = document.getElementById('filePickerOverlay');
     const queueContainer = document.getElementById('queueContainer');
     const queueList = document.getElementById('queueList');
@@ -1206,6 +1216,11 @@ ${shortError}
         
         // 发送到 Backend
         vscode.postMessage({ type: 'setModel', model: newModel });
+
+        // 模型切换后，thinking 重置为 medium
+        currentThinkLevel = 'medium';
+        renderThinkOptions(false);
+        vscode.postMessage({ type: 'setThinking', level: 'medium' });
     });
 
     modelSelect.addEventListener('focus', () => renderModelOptions(true));
@@ -1221,6 +1236,41 @@ ${shortError}
         }).join('');
         modelSelect.title = window._modelData.find(m => m.id === currentValue)?.fullName || '';
     }
+
+    // Think select
+    thinkSelect.addEventListener('change', (e) => {
+        const newLevel = e.target.value;
+        currentThinkLevel = newLevel;
+        renderThinkOptions(false);
+        vscode.postMessage({ type: 'setThinking', level: newLevel });
+    });
+
+    thinkSelect.addEventListener('focus', () => renderThinkOptions(true));
+    thinkSelect.addEventListener('blur', () => renderThinkOptions(false));
+    thinkSelect.addEventListener('mousedown', () => renderThinkOptions(true));
+
+    function getThinkLevels() {
+        const levels = ['off', 'minimal', 'low', 'medium', 'high'];
+        // 当前模型支持 xhigh 时才显示
+        const model = (currentSessionModel || '').toLowerCase();
+        if (XHIGH_MODELS.some(m => m.toLowerCase() === model)) {
+            levels.push('xhigh');
+        }
+        return levels;
+    }
+
+    function renderThinkOptions(showFull) {
+        const levels = getThinkLevels();
+        thinkSelect.innerHTML = levels.map(level => {
+            const shortLabel = t(`think.${level}`) || level;
+            const fullLabel = t(`think.${level}.full`) || level;
+            const displayLabel = showFull ? fullLabel : shortLabel;
+            return `<option value="${level}" ${level === currentThinkLevel ? 'selected' : ''}>${escapeHtml(displayLabel)}</option>`;
+        }).join('');
+    }
+
+    // 初始化 think 选项
+    renderThinkOptions(false);
 
     // File picker
     closeFilePicker.addEventListener('click', hideFilePicker);
@@ -1366,6 +1416,13 @@ ${shortError}
                 }
                 
                 renderModelOptions(false);
+                // 模型列表更新后，重新渲染 think 选项（xhigh 可能变化）
+                renderThinkOptions(false);
+                break;
+
+            case 'updateThinking':
+                currentThinkLevel = message.level || 'medium';
+                renderThinkOptions(false);
                 break;
                 
             case 'updatePlanMode':

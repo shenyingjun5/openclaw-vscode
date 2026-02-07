@@ -753,6 +753,73 @@ export class GatewayClient {
     }
 
     /**
+     * 设置会话 thinking level
+     * 通过 chat.send 发送 /think 命令
+     */
+    public async setSessionThinking(sessionId: string, level: string): Promise<void> {
+        if (this._mode === 'ws' && this._wsClient) {
+            try {
+                const thinkCmd = `/think ${level}`;
+                await this._wsClient.sendMessage(sessionId, thinkCmd);
+                console.log(`OpenClaw: 会话 ${sessionId} thinking 已设置为 ${level}`);
+                return;
+            } catch (err) {
+                if (!this._isCliFallbackEnabled()) {
+                    console.error('[Gateway] WebSocket /think command failed:', err);
+                    throw new Error(`思考深度设置失败: ${err instanceof Error ? err.message : err}`);
+                }
+                console.warn('[Gateway] WebSocket /think command failed, falling back to CLI:', err);
+            }
+        }
+
+        // CLI 兜底：通过 agent 命令发送 /think
+        return new Promise((resolve) => {
+            const args = ['agent', '-m', `/think ${level}`, '--session-id', sessionId];
+            const spawnCmd = this._getSpawnCommand(args);
+            const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
+                env: this._getSpawnEnv()
+            });
+
+            proc.on('close', (code) => {
+                if (code === 0) {
+                    console.log(`OpenClaw: thinking 已设置为 ${level}`);
+                } else {
+                    console.warn(`OpenClaw: thinking 设置失败 (exit code ${code})`);
+                }
+                resolve();
+            });
+
+            proc.on('error', () => {
+                resolve();
+            });
+        });
+    }
+
+    /**
+     * 获取会话的当前 thinking level
+     * 通过 sessions.list 获取
+     */
+    public async getSessionThinkingLevel(sessionId: string): Promise<string> {
+        if (this._mode === 'ws' && this._wsClient) {
+            try {
+                const sessions = await this._wsClient.getSessions();
+                // 匹配 session key（可能带 agent:main: 前缀）
+                const session = sessions.find((s: any) => {
+                    const key = s.key || '';
+                    return key === sessionId || key.endsWith(':' + sessionId);
+                });
+                if (session && typeof session.thinkingLevel === 'string') {
+                    return session.thinkingLevel;
+                }
+            } catch (err) {
+                console.warn('[Gateway] Failed to get session thinking level:', err);
+            }
+        }
+        // 默认返回 medium
+        return 'medium';
+    }
+
+    /**
      * 删除会话
      */
     public async deleteSession(sessionKey: string): Promise<void> {

@@ -42,5 +42,17 @@
     "diff.tooltip.preview": "Click to preview diff",
     "diff.tooltip.apply": "Apply changes",
     "diff.tooltip.skip": "Skip changes",
-    "diff.allApplied": "All changes applied successfully"
+    "diff.allApplied": "All changes applied successfully",
+    "think.off": "Think: Off",
+    "think.minimal": "Think: Min",
+    "think.low": "Think: Low",
+    "think.medium": "Think: Med",
+    "think.high": "Think: High",
+    "think.xhigh": "Think: XHigh",
+    "think.off.full": "Off",
+    "think.minimal.full": "Minimal",
+    "think.low.full": "Low",
+    "think.medium.full": "Medium",
+    "think.high.full": "High",
+    "think.xhigh.full": "Extra High"
 }

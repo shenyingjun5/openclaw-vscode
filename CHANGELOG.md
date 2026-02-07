@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [0.2.3] - 2026-02-08
+
+### Added - 思考深度切换 🧠
+
+#### 核心功能
+- **Think 选择器** - 底部工具栏新增思考深度下拉框，支持 off/minimal/low/medium/high/xhigh
+- **会话级控制** - 每个会话独立设置思考深度
+- **模型联动** - 切换模型后 thinking 自动重置为 medium
+- **xhigh 智能显示** - 仅当前模型支持 xhigh 时才显示该选项（openai/gpt-5.2 等）
+- **双语下拉** - 根据 VS Code 语言自动显示中文/英文标签
+
+#### 技术实现
+- 通过 `/think` 指令设置（走完整校验流程）
+- 通过 `sessions.list` 获取当前 thinking level
+- CLI 兜底：WebSocket 失败时通过 `openclaw agent -m "/think <level>"` 设置
+- 会话初始化时自动读取当前 thinking level
+
+### Changed
+- `enableCliFallback` 默认值改为 `true`
+
 ## [0.2.2] - 2026-02-07
 
 ### Added - 会话级模型切换 🎯

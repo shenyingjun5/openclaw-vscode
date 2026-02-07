@@ -42,5 +42,17 @@
     "diff.tooltip.preview": "点击预览差异",
     "diff.tooltip.apply": "应用此变更",
     "diff.tooltip.skip": "跳过此变更",
-    "diff.allApplied": "所有变更已应用成功"
+    "diff.allApplied": "所有变更已应用成功",
+    "think.off": "思考: 关",
+    "think.minimal": "思考: 最小",
+    "think.low": "思考: 低",
+    "think.medium": "思考: 中",
+    "think.high": "思考: 高",
+    "think.xhigh": "思考: 超高",
+    "think.off.full": "关闭",
+    "think.minimal.full": "最小",
+    "think.low.full": "低",
+    "think.medium.full": "中",
+    "think.high.full": "高",
+    "think.xhigh.full": "超高"
 }

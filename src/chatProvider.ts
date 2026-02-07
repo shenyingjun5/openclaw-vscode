@@ -153,6 +153,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     });
                     await this._loadHistory();
                     this._sendModels();
+                    this._sendThinkingLevel();
                     this._sendProjectStatus();
                     this._view?.webview.postMessage({
                         type: 'updatePlanMode',
@@ -237,6 +238,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
 
+                case 'setThinking':
+                    try {
+                        await this._gateway.setSessionThinking(this._sessionId, data.level);
+                    } catch (err: any) {
+                        vscode.window.showErrorMessage(`思考深度设置失败: ${err.message || err}`);
+                    }
+                    break;
+
                 case 'initProject':
                     await this._initProjectConfig(true);
                     this._sendProjectStatus();
@@ -305,6 +314,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             type: 'updateModels',
             models
         });
+    }
+
+    private async _sendThinkingLevel() {
+        try {
+            const level = await this._gateway.getSessionThinkingLevel(this._sessionId);
+            this._view?.webview.postMessage({
+                type: 'updateThinking',
+                level
+            });
+        } catch (err) {
+            console.warn('Failed to get thinking level:', err);
+        }
     }
 
     private async _sendMessage(content: string) {

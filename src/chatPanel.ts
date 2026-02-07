@@ -170,6 +170,7 @@ export class ChatPanel {
                         });
                         await this._loadHistory();
                         this._sendModels();
+                        this._sendThinkingLevel();
                         this._sendProjectStatus();
                         this._panel.webview.postMessage({ 
                             type: 'updatePlanMode', 
@@ -251,6 +252,14 @@ export class ChatPanel {
                             vscode.window.showInformationMessage(`模型已切换为: ${data.model}`);
                         } catch (err: any) {
                             vscode.window.showErrorMessage(`模型切换失败: ${err.message || err}`);
+                        }
+                        break;
+
+                    case 'setThinking':
+                        try {
+                            await this._gateway.setSessionThinking(this._sessionId, data.level);
+                        } catch (err: any) {
+                            vscode.window.showErrorMessage(`思考深度设置失败: ${err.message || err}`);
                         }
                         break;
                         
@@ -346,6 +355,18 @@ export class ChatPanel {
             type: 'updateModels',
             models
         });
+    }
+
+    private async _sendThinkingLevel() {
+        try {
+            const level = await this._gateway.getSessionThinkingLevel(this._sessionId);
+            this._panel.webview.postMessage({
+                type: 'updateThinking',
+                level
+            });
+        } catch (err) {
+            console.warn('Failed to get thinking level:', err);
+        }
     }
 
     private async _sendMessage(content: string) {
