@@ -122,7 +122,7 @@ If you encounter "Cannot find openclaw" error:
 Click the OpenClaw icon in the activity bar to open the chat sidebar.
 
 ### Popup Panel
-Run command "OpenClaw: Open Chat Panel" or click the 🐱 button in the status bar. You can open up to 5 panels simultaneously.
+Run command "OpenClaw: Open Chat Panel" or click the 🦞 button in the status bar. You can open up to 5 panels simultaneously.
 
 ### Project Skills & Workflows
 
@@ -348,7 +348,7 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 点击活动栏中的 OpenClaw 图标打开聊天侧边栏。
 
 ### 弹出面板
-运行命令 "OpenClaw: Open Chat Panel" 或点击状态栏中的 🐱 按钮。可以同时打开最多 5 个面板。
+运行命令 "OpenClaw: Open Chat Panel" 或点击状态栏中的 🦞 按钮。可以同时打开最多 5 个面板。
 
 ### 项目技能与工作流
 

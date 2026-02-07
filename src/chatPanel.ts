@@ -114,7 +114,7 @@ export class ChatPanel {
 
         const panel = vscode.window.createWebviewPanel(
             ChatPanel.viewType,
-            '🐱',
+            '🦞',
             column,
             {
                 enableScripts: true,

@@ -67,13 +67,13 @@ code --install-extension openclaw-x.x.x.vsix
 ## Verify Installation / 验证安装
 
 1. Look for the OpenClaw icon in the activity bar (left sidebar)
-2. Look for the 🐱 button in the status bar (bottom)
+2. Look for the 🦞 button in the status bar (bottom)
 3. Click either to start chatting!
 
 ---
 
 1. 在活动栏（左侧边栏）中查找 OpenClaw 图标
-2. 在状态栏（底部）中查找 🐱 按钮
+2. 在状态栏（底部）中查找 🦞 按钮
 3. 点击任一按钮开始聊天！
 
 ---

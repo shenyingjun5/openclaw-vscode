@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.2.1] - 2026-02-07
+
+### Changed
+- 更新扩展图标
+
 ## [0.2.0] - 2026-02-07
 
 ### Added - Diff Preview & Apply Feature 🎉
