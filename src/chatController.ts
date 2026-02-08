@@ -289,6 +289,9 @@ export class ChatController {
         // 主动建立连接并更新状态
         await this._ensureConnection();
 
+        // 连接成功后获取 AI 身份（头像/昵称）
+        this._fetchAssistantIdentity();
+
         // 连接成功后获取 thinking level
         this._sendThinkingLevel();
 
@@ -435,11 +438,12 @@ export class ChatController {
 
             if (!isConfirm) {
                 const isZh = getLocale() === 'zh';
-                if (isZh) {
-                    messageToSend += `\n\n---- 计划模式 ----\n⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败\n---- 计划模式 ----`;
-                } else {
-                    messageToSend += `\n\n---- Plan Mode ----\n⚠️ Do Not Execute - Plan Only\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say "execute" before calling tools\n\nViolation = Task failed\n---- Plan Mode ----`;
-                }
+                const customPrompt = vscode.workspace.getConfiguration('openclaw').get<string>('planModePrompt', '').trim();
+                const marker = isZh ? '---- 计划模式 ----' : '---- Plan Mode ----';
+                const body = customPrompt || (isZh
+                    ? '⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败'
+                    : '⚠️ Do Not Execute - Plan Only\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say "execute" before calling tools\n\nViolation = Task failed');
+                messageToSend += `\n\n${marker}\n${body}\n${marker}`;
             }
         }
 
@@ -584,6 +588,22 @@ export class ChatController {
                 type: 'connectionStatus',
                 status: 'disconnected'
             });
+        }
+    }
+
+    private async _fetchAssistantIdentity() {
+        if (!this._gateway.isConnected()) return;
+        try {
+            const identity = await this._gateway.getAgentIdentity();
+            if (identity) {
+                this._webview?.postMessage({
+                    type: 'assistantIdentity',
+                    name: identity.name || '',
+                    avatar: identity.avatar || ''
+                });
+            }
+        } catch (err) {
+            console.warn('[identity] 获取 AI 身份失败:', err);
         }
     }
 

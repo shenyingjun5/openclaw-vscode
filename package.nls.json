@@ -13,6 +13,7 @@
   "config.autoRefreshInterval.description": "Auto-refresh interval in milliseconds (0 to disable)",
   "config.autoRefreshInterval.markdownDescription": "Auto-refresh session history interval (milliseconds).\\n\\n- `0`: Disable auto-refresh\\n- `5000`: Refresh every 5 seconds\\n- `10000`: Refresh every 10 seconds (default)\\n- `30000`: Refresh every 30 seconds",
   "config.enableCliFallback.description": "Enable CLI command fallback when WebSocket fails (for debugging). When disabled, only WebSocket mode is used.",
+  "config.planModePrompt.description": "Custom prompt for Plan Mode. Leave empty to use the built-in default. The ---- Plan Mode ---- markers are added automatically.",
   "command.openChatPanel.title": "Open Chat Panel",
   "command.sendSelection.title": "Send Selection to OpenClaw",
   "command.sendFile.title": "Send File to OpenClaw",

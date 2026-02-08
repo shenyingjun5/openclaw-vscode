@@ -970,4 +970,23 @@ export class GatewayClient {
             req.end();
         });
     }
+
+    /**
+     * 获取 AI 身份信息（名称、头像）
+     */
+    public async getAgentIdentity(): Promise<{ name: string; avatar: string } | null> {
+        if (this._mode === 'ws' && this._wsClient) {
+            try {
+                const result = await this._wsClient.sendRpc('agent.identity.get', {});
+                return {
+                    name: result?.name || '',
+                    avatar: result?.avatar || ''
+                };
+            } catch (err) {
+                console.warn('[Gateway] 获取 AI 身份失败:', err);
+                return null;
+            }
+        }
+        return null;
+    }
 }

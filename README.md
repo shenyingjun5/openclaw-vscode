@@ -18,57 +18,22 @@ AI coding assistant for VS Code, powered by OpenClaw.
 - 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
 - 🪟 **Windows Support** - Enhanced Windows compatibility (95% coverage)
 
-## What's New in v0.2.6
+## What's New in v0.2.7
 
-### 🧠 AI Thinking Process Display
+### 🤖 AI Avatar & Name Display
 
-See how AI reasons through your problems:
+- **Avatar in chat** — AI avatar and name shown at the start of each assistant message group
+- **Auto-fetched** — Retrieved via `agent.identity.get` API on connection
+- **Multiple formats** — Supports URL images, emoji, and letter avatars (gradient circle)
 
-- **Collapsible view** — AI thinking content shown in a foldable `<details>` section above each reply
-- **Default collapsed** — Click "🧠 Thinking" to expand the full reasoning chain
-- **Aligned with webchat** — Extracts `{type: "thinking"}` blocks from `chat.history` content array
+### ✏️ Custom Plan Mode Prompt
 
-### 🌍 Plan Mode i18n
+- **New setting** — `openclaw.planModePrompt`: customize the plan mode instruction text
+- **Multiline editor** — Edit in VS Code Settings with full multiline support
+- **Smart defaults** — Leave empty to use the built-in default (auto-follows language)
+- **Stable filtering** — `---- Plan Mode ----` markers are auto-added, filtering logic unchanged
 
-Plan mode now speaks your language:
 
-- **Localized separator** — Chinese: `---- 计划模式 ----`, English: `---- Plan Mode ----`
-- **Context setup i18n** — System messages switch between `[系统设置 - 无需回复]` / `[System Setup - No reply needed]`
-- **Backward compatible** — History regex matches both old and new separator formats
-
-### 🐛 Plan Mode Display Fix
-
-- **Problem** — Plan mode suffix (instructions to AI) leaked into chat display after history refresh
-- **Fix** — `loadHistory` now strips plan mode suffix from user messages via regex before rendering
-
-## What's New in v0.2.0
-
-### 🎉 Diff Preview & Apply
-
-AI can return structured file changes that you preview and apply visually:
-
-```
-┌────────────────────────────────────────────────────┐
-│ 📁 File Changes                     3 files         │
-├────────────────────────────────────────────────────┤
-│ 📝 src/Header.tsx (Modify)             ✓    ✗      │
-│ ➕ src/utils.ts (Create)               ✓    ✗      │
-│ 🗑️ src/old.js (Delete)                 ✓    ✗      │
-├────────────────────────────────────────────────────┤
-│               [ Accept All ]  [ Reject All ]        │
-└────────────────────────────────────────────────────┘
-```
-
-- Click filename → Preview diff in VS Code native view
-- ✓ / ✗ → Apply or skip individual files
-- Batch accept/reject all
-- Auto-accept pending changes when sending new message
-
-### 🌍 Multi-language AI Output
-
-**Setting:** `openclaw.aiOutputLanguage`
-- `auto` - Follow system language (default)
-- `zh-CN` / `en` / `ja` / `ko`
 
 ## Installation
 
@@ -245,6 +210,7 @@ Open VS Code Settings (`Ctrl+,`) and search for "OpenClaw":
 | `openclaw.aiOutputLanguage` | `auto` | AI response language |
 | `openclaw.autoRefreshInterval` | `2000` | Auto-refresh interval (ms, 0 to disable) |
 | `openclaw.enableCliFallback` | `true` | Enable CLI fallback when WebSocket fails |
+| `openclaw.planModePrompt` | | Custom Plan Mode prompt (empty = built-in default) |
 
 ## Development
 
@@ -328,51 +294,22 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 🌍 **多语言** - 界面和 AI 输出完整国际化（zh-CN、en、ja、ko）
 - 🪟 **Windows 支持** - 95% 平台兼容性
 
-## v0.2.6 新特性
+## v0.2.7 新特性
 
-### 🧠 AI 思考过程展示
+### 🤖 AI 头像与昵称显示
 
-查看 AI 如何推理你的问题：
+- **聊天头像** — 连续 assistant 消息组的首条显示 AI 头像和名称
+- **自动获取** — 连接后通过 `agent.identity.get` API 获取
+- **多种格式** — 支持 URL 图片、emoji 和字母头像（渐变圆形背景）
 
-- **折叠展示** — AI 的 thinking 内容以可折叠区域展示在回复上方
-- **默认折叠** — 点击「🧠 思考过程」可展开查看完整推理链路
-- **数据对齐 webchat** — 从 `chat.history` 的内容数组中提取 thinking 块
+### ✏️ 计划模式自定义提示词
 
-### 🌍 计划模式国际化
+- **新增设置** — `openclaw.planModePrompt`：自定义计划模式指令文本
+- **多行编辑** — 在 VS Code 设置中以多行文本框编辑
+- **智能默认** — 留空使用内置默认文本（自动跟随语言）
+- **过滤稳定** — `---- 计划模式 ----` 标记自动包裹，过滤逻辑无需变动
 
-计划模式现在使用你的语言：
 
-- **本地化分隔线** — 中文：`---- 计划模式 ----`，英文：`---- Plan Mode ----`
-- **上下文设置国际化** — 系统消息根据语言切换：`[系统设置 - 无需回复]` / `[System Setup - No reply needed]`
-- **向后兼容** — 历史正则同时匹配新旧两种格式
-
-### 🐛 计划模式显示修复
-
-- **问题** — 计划模式后缀（给 AI 的指令）在历史刷新后泄漏到聊天显示中
-- **修复** — `loadHistory` 通过正则从用户消息中剥离计划模式后缀
-
-## v0.2.0 新特性
-
-### 🎉 变更预览与应用
-
-AI 可以返回结构化的文件变更，支持可视化预览和应用：
-
-```
-┌────────────────────────────────────────────────────┐
-│ 📁 File Changes                     3 files         │
-├────────────────────────────────────────────────────┤
-│ 📝 src/Header.tsx (Modify)             ✓    ✗      │
-│ ➕ src/utils.ts (Create)               ✓    ✗      │
-│ 🗑️ src/old.js (Delete)                 ✓    ✗      │
-├────────────────────────────────────────────────────┤
-│               [ Accept All ]  [ Reject All ]        │
-└────────────────────────────────────────────────────┘
-```
-
-- 点击文件名 → 在 VS Code 原生 Diff 视图中预览
-- ✓ / ✗ → 应用或跳过单个文件
-- 批量接受/拒绝所有变更
-- 发送新消息时自动接受待处理变更
 
 ### 🌍 多语言 AI 输出
 
@@ -555,6 +492,7 @@ project/
 | `openclaw.aiOutputLanguage` | `auto` | AI 输出语言 |
 | `openclaw.autoRefreshInterval` | `2000` | 自动刷新间隔（ms，0 禁用） |
 | `openclaw.enableCliFallback` | `true` | WebSocket 失败时启用 CLI 兜底 |
+| `openclaw.planModePrompt` | | 自定义计划模式提示词（留空使用内置默认） |
 
 ## 开发
 

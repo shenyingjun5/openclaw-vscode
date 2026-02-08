@@ -2,7 +2,7 @@
   "name": "openclaw",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
@@ -147,6 +147,12 @@
           "type": "boolean",
           "default": true,
           "description": "%config.enableCliFallback.description%"
+        },
+        "openclaw.planModePrompt": {
+          "type": "string",
+          "default": "",
+          "description": "%config.planModePrompt.description%",
+          "editPresentation": "multilineText"
         }
       }
     }

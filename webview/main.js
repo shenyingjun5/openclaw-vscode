@@ -130,6 +130,8 @@
     let chatRunId = null;      // 当前运行的 runId，非 null = 等待 AI 回复
     let currentSessionModel = null; // 当前会话的模型（会话级状态）
     let currentThinkLevel = 'low'; // 当前思考深度（会话级状态）
+    let assistantName = '';   // AI 名称（从 agent.identity.get 获取）
+    let assistantAvatar = ''; // AI 头像（emoji/字母/URL）
 
     // xhigh 支持的模型列表
     const XHIGH_MODELS = [
@@ -351,6 +353,20 @@
     }
 
     /**
+     * 渲染 AI 头像元素
+     * avatar 可能是：URL (http/https)、emoji、字母
+     */
+    function renderAvatarElement() {
+        const av = assistantAvatar || '';
+        if (av.startsWith('http://') || av.startsWith('https://')) {
+            return `<img class="assistant-avatar" src="${escapeHtml(av)}" alt="">`;
+        }
+        // emoji 或字母 — 用圆形背景
+        const display = av || (assistantName ? assistantName.charAt(0) : '🤖');
+        return `<span class="assistant-avatar assistant-avatar-text">${escapeHtml(display)}</span>`;
+    }
+
+    /**
      * Add message with optional attachments and thinking
      * @param {string} role
      * @param {string} content
@@ -358,7 +374,7 @@
      * @param {boolean} [skipScroll=false] - 是否跳过自动滚动（批量加载时使用）
      * @param {string} [thinking] - AI 思考过程内容
      */
-    function addMessage(role, content, messageAttachments, skipScroll, thinking) {
+    function addMessage(role, content, messageAttachments, skipScroll, thinking, showAvatar) {
         // 记录添加前是否在底部
         const wasAtBottom = isScrolledToBottom();
 
@@ -367,6 +383,15 @@
         
         if (role === 'assistant') {
             let html = '';
+            // 头像行（仅在分组首条显示）
+            if (showAvatar && (assistantName || assistantAvatar)) {
+                html += `<div class="assistant-header">`;
+                html += renderAvatarElement();
+                if (assistantName) {
+                    html += `<span class="assistant-name">${escapeHtml(assistantName)}</span>`;
+                }
+                html += `</div>`;
+            }
             // 渲染 thinking 折叠区域
             if (thinking) {
                 const thinkingId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
@@ -1544,7 +1569,7 @@ ${shortError}
                 
             case 'addMessage':
                 hideThinking();
-                addMessage(message.role, message.content);
+                addMessage(message.role, message.content, null, false, null, message.role === 'assistant');
                 break;
                 
             case 'addToolCall':
@@ -1660,6 +1685,7 @@ ${shortError}
                     window._refreshScrollState = null;
 
                     messages.innerHTML = '';
+                    let prevRole = '';
                     message.messages.forEach(msg => {
                         // 先渲染工具调用卡片（在文本之前），跳过自动滚动
                         if (msg.toolCalls && msg.toolCalls.length > 0) {
@@ -1667,7 +1693,11 @@ ${shortError}
                         }
                         // 再渲染文本内容，跳过自动滚动，传入 thinking
                         if (msg.content) {
-                            addMessage(msg.role, msg.content, null, true, msg.thinking);
+                            // 分组头像：assistant 消息组的第一条显示头像
+                            const isNewGroup = msg.role !== prevRole;
+                            const showAvatar = msg.role === 'assistant' && isNewGroup;
+                            addMessage(msg.role, msg.content, null, true, msg.thinking, showAvatar);
+                            prevRole = msg.role;
                         }
                     });
                     
@@ -1739,6 +1769,12 @@ ${shortError}
             case 'autoRefreshInterval':
                 // 自动刷新间隔配置
                 startAutoRefresh(message.interval);
+                break;
+
+            case 'assistantIdentity':
+                // AI 头像和名称
+                assistantName = message.name || '';
+                assistantAvatar = message.avatar || '';
                 break;
                 
             case 'systemNotification':

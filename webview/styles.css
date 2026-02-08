@@ -211,6 +211,41 @@ body {
     border-radius: var(--border-radius);
 }
 
+/* Assistant header (avatar + name) */
+.assistant-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+}
+
+.assistant-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+}
+
+.assistant-avatar-text {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.assistant-name {
+    font-size: var(--font-size-small, 12px);
+    font-weight: 600;
+    color: var(--vscode-foreground, #ccc);
+    opacity: 0.85;
+}
+
 /* Error message */
 .message.error {
     align-self: flex-start;
