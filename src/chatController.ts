@@ -434,18 +434,12 @@ export class ChatController {
             );
 
             if (!isConfirm) {
-                messageToSend += `
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ [Plan Mode - Do Not Execute]
-
-You must:
-1. Output plan only, do not call any tools
-2. List each step and its impact
-3. Wait for user to say "execute" before calling tools
-
-Violation = Task failed
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                const isZh = getLocale() === 'zh';
+                if (isZh) {
+                    messageToSend += `\n\n---- 计划模式 ----\n⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败\n---- 计划模式 ----`;
+                } else {
+                    messageToSend += `\n\n---- Plan Mode ----\n⚠️ Do Not Execute - Plan Only\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say "execute" before calling tools\n\nViolation = Task failed\n---- Plan Mode ----`;
+                }
             }
         }
 

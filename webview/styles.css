@@ -219,6 +219,61 @@ body {
     border-radius: var(--border-radius);
 }
 
+/* Thinking block - collapsible */
+.thinking-block {
+    margin-bottom: 8px;
+    border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+    border-radius: 2px;
+    background: var(--vscode-editor-inactiveSelectionBackground, rgba(255, 255, 255, 0.05));
+}
+
+.thinking-summary {
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground, #888);
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.thinking-summary::-webkit-details-marker {
+    display: none;
+}
+
+.thinking-summary::after {
+    content: '▶';
+    font-size: 9px;
+    margin-left: 4px;
+    transition: transform 0.15s ease;
+    color: var(--vscode-descriptionForeground, #888);
+}
+
+.thinking-block[open] .thinking-summary::after {
+    transform: rotate(90deg);
+}
+
+.thinking-content {
+    padding: 4px 10px 8px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground, #999);
+    line-height: 1.5;
+    font-style: italic;
+    opacity: 0.85;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.thinking-content p {
+    margin: 0 0 6px 0;
+}
+
+.thinking-content p:last-child {
+    margin-bottom: 0;
+}
+
 /* Tool call */
 /* Tool cards - horizontal scrolling row */
 .tool-cards-row {

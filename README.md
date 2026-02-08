@@ -18,53 +18,28 @@ AI coding assistant for VS Code, powered by OpenClaw.
 - 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
 - 🪟 **Windows Support** - Enhanced Windows compatibility (95% coverage)
 
-## What's New in v0.2.5
+## What's New in v0.2.6
 
-### 🧠 Thinking Depth Control
+### 🧠 AI Thinking Process Display
 
-Fine-tune AI reasoning depth per session:
+See how AI reasons through your problems:
 
-- **Think selector** — New dropdown in the bottom toolbar: off/minimal/low/medium/high/xhigh
-- **Per-session** — Each chat session remembers its own thinking level
-- **Model-aware** — Resets to medium when switching models; xhigh only shown for supported models
-- **Bilingual** — Labels auto-switch between Chinese and English
+- **Collapsible view** — AI thinking content shown in a foldable `<details>` section above each reply
+- **Default collapsed** — Click "🧠 Thinking" to expand the full reasoning chain
+- **Aligned with webchat** — Extracts `{type: "thinking"}` blocks from `chat.history` content array
 
-### 🪟 Windows WSL Support
+### 🌍 Plan Mode i18n
 
-Use OpenClaw installed in WSL directly from Windows VS Code:
+Plan mode now speaks your language:
 
-- **Zero config** — Default `localhost:18789` auto-maps to WSL
-- **Setup guide** — Just bind Gateway to `0.0.0.0` in WSL, and you're done
+- **Localized separator** — Chinese: `---- 计划模式 ----`, English: `---- Plan Mode ----`
+- **Context setup i18n** — System messages switch between `[系统设置 - 无需回复]` / `[System Setup - No reply needed]`
+- **Backward compatible** — History regex matches both old and new separator formats
 
-### 🏗️ Chat State Machine Overhaul (Aligned with Webchat)
+### 🐛 Plan Mode Display Fix
 
-Completely rearchitected the message sending and reply tracking to match OpenClaw's official webchat implementation. This fixes premature completion issues where the AI appeared to finish while still processing.
-
-- **Fire-and-forget messaging** — `chat.send` RPC returns immediately, no longer blocks waiting for AI reply
-- **RunId-based tracking** — Each message gets a unique `runId` (idempotencyKey); the send button stays disabled until the matching `chat final` event arrives via WebSocket
-- **Event-driven completion** — Reply completion is determined by Gateway's `chat` event (state=final/error/aborted), not by Promise resolution
-- **Robust busy state** — `isBusy = isSending || !!chatRunId`, matching webchat's `Qr` function exactly
-
-### 🔄 Smart Auto-Refresh
-
-Rebuilt the auto-refresh system for reliability during AI tool calls:
-
-- **`setInterval`-based** — Fixed 2-second interval, no chain-breaking issues
-- **Only during AI reply** — Auto-refresh activates when `chatRunId` is set (waiting for AI), stops when reply completes
-- **Crash-proof history loading** — `_loadHistory` wrapped in try-catch so a single failure can't permanently disable auto-refresh
-- **No flicker** — Content fingerprint (`lastHistoryHash`) skips DOM rebuild when history hasn't changed
-
-### 🔧 Context Setup No Longer Blocks
-
-Fixed a critical bug where `sendContextSetup` (language/workspace setup) could block all subsequent messages for up to 10 minutes:
-
-- **Root cause** — `sendMessage()` awaited the AI reply to a "[No reply needed]" message; Gateway never sent `final` → 600s timeout
-- **Fix** — Context setup now uses fire-and-forget (`sendRpc('chat.send')`) with `deliver: false`
-
-### 📋 Independent Session History
-
-- Each VSCode window's `sessionKey` is prefixed with `agent:main:` to match Gateway's internal key format
-- Fixes issue where all windows shared the same chat history
+- **Problem** — Plan mode suffix (instructions to AI) leaked into chat display after history refresh
+- **Fix** — `loadHistory` now strips plan mode suffix from user messages via regex before rendering
 
 ## What's New in v0.2.0
 
@@ -353,53 +328,28 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 🌍 **多语言** - 界面和 AI 输出完整国际化（zh-CN、en、ja、ko）
 - 🪟 **Windows 支持** - 95% 平台兼容性
 
-## v0.2.5 新特性
+## v0.2.6 新特性
 
-### 🧠 思考深度控制
+### 🧠 AI 思考过程展示
 
-按会话调节 AI 推理深度：
+查看 AI 如何推理你的问题：
 
-- **Think 选择器** — 底部工具栏新增下拉框：off/minimal/low/medium/high/xhigh
-- **会话级控制** — 每个聊天会话独立记忆思考深度
-- **模型联动** — 切换模型后自动重置为 medium；xhigh 仅在支持的模型上显示
-- **双语标签** — 根据 VS Code 语言自动切换中英文
+- **折叠展示** — AI 的 thinking 内容以可折叠区域展示在回复上方
+- **默认折叠** — 点击「🧠 思考过程」可展开查看完整推理链路
+- **数据对齐 webchat** — 从 `chat.history` 的内容数组中提取 thinking 块
 
-### 🪟 Windows WSL 支持
+### 🌍 计划模式国际化
 
-在 WSL 中安装 OpenClaw，Windows VS Code 直接使用：
+计划模式现在使用你的语言：
 
-- **零配置** — 默认 `localhost:18789` 自动映射到 WSL
-- **配置引导** — 只需在 WSL 中将 Gateway 绑定到 `0.0.0.0` 即可
+- **本地化分隔线** — 中文：`---- 计划模式 ----`，英文：`---- Plan Mode ----`
+- **上下文设置国际化** — 系统消息根据语言切换：`[系统设置 - 无需回复]` / `[System Setup - No reply needed]`
+- **向后兼容** — 历史正则同时匹配新旧两种格式
 
-### 🏗️ 聊天状态机重构（对齐 Webchat）
+### 🐛 计划模式显示修复
 
-完全重构消息发送和回复追踪逻辑，对齐 OpenClaw 官方 webchat 实现。修复了 AI 实际仍在处理但界面显示已完成的过早结束问题。
-
-- **Fire-and-forget 发送** — `chat.send` RPC 立即返回，不再阻塞等待 AI 回复
-- **RunId 追踪** — 每条消息生成唯一 `runId`（idempotencyKey），发送按钮保持禁用直到收到匹配的 `chat final` 事件
-- **事件驱动完成** — 回复完成由 Gateway 的 `chat` 事件（state=final/error/aborted）决定，而非 Promise 解析
-- **稳健的忙碌状态** — `isBusy = isSending || !!chatRunId`，完全对齐 webchat 的 `Qr` 函数
-
-### 🔄 智能自动刷新
-
-重建自动刷新系统，确保 AI 工具调用期间的可靠性：
-
-- **基于 `setInterval`** — 固定 2 秒间隔，不会出现链条断裂问题
-- **仅在等待回复时刷新** — `chatRunId` 非空时启动自动刷新，回复完成后停止
-- **历史加载防崩溃** — `_loadHistory` 包裹 try-catch，单次失败不会永久禁用自动刷新
-- **无闪烁** — 内容指纹（`lastHistoryHash`）在历史未变化时跳过 DOM 重建
-
-### 🔧 上下文设置不再阻塞
-
-修复了一个关键 Bug：`sendContextSetup`（语言/工作区设置）可能阻塞后续所有消息长达 10 分钟：
-
-- **根本原因** — `sendMessage()` 等待 AI 回复 "[No reply needed]" 消息，Gateway 不发 `final` → 600 秒超时
-- **修复方案** — 上下文设置改用 fire-and-forget（`sendRpc('chat.send')`），加 `deliver: false`
-
-### 📋 独立会话历史
-
-- 每个 VSCode 窗口的 `sessionKey` 加上 `agent:main:` 前缀，匹配 Gateway 内部 key 格式
-- 修复了所有窗口共享同一聊天历史的问题
+- **问题** — 计划模式后缀（给 AI 的指令）在历史刷新后泄漏到聊天显示中
+- **修复** — `loadHistory` 通过正则从用户消息中剥离计划模式后缀
 
 ## v0.2.0 新特性
 

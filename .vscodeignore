@@ -12,3 +12,5 @@ node_modules/**
 PUBLISH.md
 *.vsix
 .ovsx-token
+test-*.mjs
+test-*.cjs

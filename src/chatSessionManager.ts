@@ -328,22 +328,37 @@ export class ChatSessionManager {
             parts.push(instruction);
         }
 
+        // 判断当前语言
+        const lang = languageManager.getAIOutputLanguage();
+        const isZh = lang.startsWith('zh');
+
         // VSCode 工作区上下文
         const workspaceDir = this._getWorkspaceDir();
         if (workspaceDir) {
             const projectName = require('path').basename(workspaceDir);
-            parts.push(
-                `[VSCode Context]\n` +
-                `The user is currently editing a project in VSCode:\n` +
-                `- Project path: ${workspaceDir}\n` +
-                `- Project name: ${projectName}\n\n` +
-                `When the user asks about code, files, or project-related tasks, operate in this project directory, not your default workspace.`
-            );
+            if (isZh) {
+                parts.push(
+                    `[VSCode 上下文]\n` +
+                    `用户正在 VSCode 中编辑项目：\n` +
+                    `- 项目路径: ${workspaceDir}\n` +
+                    `- 项目名称: ${projectName}\n\n` +
+                    `当用户询问代码、文件或项目相关任务时，请在此项目目录下操作，而非默认工作区。`
+                );
+            } else {
+                parts.push(
+                    `[VSCode Context]\n` +
+                    `The user is currently editing a project in VSCode:\n` +
+                    `- Project path: ${workspaceDir}\n` +
+                    `- Project name: ${projectName}\n\n` +
+                    `When the user asks about code, files, or project-related tasks, operate in this project directory, not your default workspace.`
+                );
+            }
         }
 
         if (parts.length === 0) return;
 
-        const setupMessage = `[System Setup - No reply needed]\n\n${parts.join('\n\n')}`;
+        const header = isZh ? '[系统设置 - 无需回复]' : '[System Setup - No reply needed]';
+        const setupMessage = `${header}\n\n${parts.join('\n\n')}`;
 
         try {
             // Fire-and-forget: 只发送不等回复，避免阻塞后续用户消息
@@ -365,7 +380,7 @@ export class ChatSessionManager {
      * 加载会话历史（清理 think/final 标签，保留工具调用）
      * limit: 200 对齐 webchat
      */
-    async loadHistory(gateway: any, sessionKey: string): Promise<Array<{ role: string; content: string; toolCalls?: any[] }>> {
+    async loadHistory(gateway: any, sessionKey: string): Promise<Array<{ role: string; content: string; toolCalls?: any[]; thinking?: string }>> {
         try {
             const history = await gateway.getHistory(sessionKey, 200);
 
@@ -374,12 +389,13 @@ export class ChatSessionManager {
                 this._languageSentSessions.add(sessionKey);
             }
 
-            const result: Array<{ role: string; content: string; toolCalls?: any[] }> = [];
+            const result: Array<{ role: string; content: string; toolCalls?: any[]; thinking?: string }> = [];
             let skipNextAssistant = false;
 
             for (const msg of history) {
                 let content = msg.content;
                 const toolCalls: any[] = [];
+                const thinkingParts: string[] = [];
 
                 // 处理 content 数组格式（Gateway 返回 [{type, text}] 结构）
                 if (Array.isArray(content)) {
@@ -394,8 +410,12 @@ export class ChatSessionManager {
                                 name: c.name || 'tool',
                                 args: c.arguments || c.args || c.input
                             });
+                        } else if (type === 'thinking') {
+                            // 提取 thinking 内容块（对齐 webchat 的 Qa() 函数）
+                            const text = (c.thinking || '').trim();
+                            if (text) thinkingParts.push(text);
                         }
-                        // 跳过 toolResult、thinking 等
+                        // 跳过 toolResult 等
                     }
                     content = textParts.join('');
                 }
@@ -408,10 +428,28 @@ export class ChatSessionManager {
                 content = String(content || '');
                 content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
                 content = content.replace(/<\/?final>/g, '');
+
+                // 剥离计划模式后缀，只显示用户原始输入
+                if (role === 'user') {
+                    // 匹配新格式: ---- Plan Mode ---- 或 ---- 计划模式 ----
+                    // 用 \s+ 匹配任意空白（Gateway 可能将 \n\n 转为空格）
+                    const planNewIdx = content.search(/\s+---- (?:Plan Mode|计划模式) ----/);
+                    if (planNewIdx !== -1) {
+                        content = content.substring(0, planNewIdx);
+                    } else {
+                        // 兼容旧格式: ━━━ + [Plan Mode]
+                        const planOldIdx = content.search(/\s+━━━━━━━━/);
+                        if (planOldIdx !== -1 && content.includes('[Plan Mode')) {
+                            content = content.substring(0, planOldIdx);
+                        }
+                    }
+                }
+
                 content = content.trim();
                 
                 // 过滤掉上下文设置相关的系统消息和回复
                 const isSetupMessage = content.includes('[System Setup - No reply needed]') ||
+                    content.includes('[系统设置 - 无需回复]') ||
                     content.includes('Please confirm with "Language settings updated"');
                 if (isSetupMessage) {
                     skipNextAssistant = true;
@@ -434,6 +472,11 @@ export class ChatSessionManager {
                 const entry: any = { role: msg.role, content };
                 if (toolCalls.length > 0) {
                     entry.toolCalls = toolCalls;
+                }
+                // 附加 thinking 数据
+                const thinking = thinkingParts.join('\n');
+                if (thinking) {
+                    entry.thinking = thinking;
                 }
                 result.push(entry);
             }

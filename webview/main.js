@@ -351,13 +351,14 @@
     }
 
     /**
-     * Add message with optional attachments
+     * Add message with optional attachments and thinking
      * @param {string} role
      * @param {string} content
      * @param {Array|null} messageAttachments
      * @param {boolean} [skipScroll=false] - 是否跳过自动滚动（批量加载时使用）
+     * @param {string} [thinking] - AI 思考过程内容
      */
-    function addMessage(role, content, messageAttachments, skipScroll) {
+    function addMessage(role, content, messageAttachments, skipScroll, thinking) {
         // 记录添加前是否在底部
         const wasAtBottom = isScrolledToBottom();
 
@@ -365,7 +366,14 @@
         div.className = `message ${role}`;
         
         if (role === 'assistant') {
-            div.innerHTML = renderMarkdown(content);
+            let html = '';
+            // 渲染 thinking 折叠区域
+            if (thinking) {
+                const thinkingId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+                html += `<details class="thinking-block"><summary class="thinking-summary">🧠 ${locale === 'zh' ? '思考过程' : 'Thinking'}</summary><div class="thinking-content">${renderMarkdown(thinking)}</div></details>`;
+            }
+            html += renderMarkdown(content);
+            div.innerHTML = html;
         } else if (role === 'user') {
             // User message: show attachments + text with line breaks
             let html = '';
@@ -1639,7 +1647,7 @@ ${shortError}
                 if (message.messages && message.messages.length > 0) {
                     // 计算内容指纹，跳过无变化的重建（避免自动刷新闪烁）
                     const hash = message.messages.map(m => 
-                        `${m.role}:${(m.content || '').length}:${(m.toolCalls || []).length}`
+                        `${m.role}:${(m.content || '').length}:${(m.toolCalls || []).length}:${(m.thinking || '').length}`
                     ).join('|');
                     if (hash === lastHistoryHash) {
                         // 内容没变，跳过重建
@@ -1657,12 +1665,17 @@ ${shortError}
                         if (msg.toolCalls && msg.toolCalls.length > 0) {
                             addToolCards(msg.toolCalls, true);
                         }
-                        // 再渲染文本内容，跳过自动滚动
+                        // 再渲染文本内容，跳过自动滚动，传入 thinking
                         if (msg.content) {
-                            addMessage(msg.role, msg.content, null, true);
+                            addMessage(msg.role, msg.content, null, true, msg.thinking);
                         }
                     });
                     
+                    // 如果仍处于忙碌状态，重新显示 thinking indicator
+                    if (isBusy()) {
+                        showThinking();
+                    }
+
                     // 批量渲染完成后，只有之前在底部才滚动
                     requestAnimationFrame(() => {
                         if (scrollState.wasAtBottom) {
