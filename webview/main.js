@@ -1,3 +1,4 @@
+// @ts-check
 // OpenClaw VSCode Extension - Webview Script
 
 (function() {
@@ -9,8 +10,8 @@
     let i18n = {
         thinking: 'Thinking...',
         sendPlaceholder: 'Ask a question...',
-        planMode: 'Plan Mode',
-        executeMode: 'Execute Mode',
+        planMode: 'Plan',
+        executeMode: 'Execute',
         defaultModel: 'Default Model',
         settings: 'Settings',
         refresh: 'Refresh',
@@ -34,7 +35,16 @@
         cmdWorkflow: 'Show workflow',
         cmdClear: 'Clear chat',
         cmdHelp: 'Show help',
-        triggeredSkill: 'Triggered skill'
+        triggeredSkill: 'Triggered skill',
+        'dropdown.mode': 'Mode',
+        'dropdown.model': 'Model',
+        'dropdown.think': 'Thinking',
+        'think.off': 'Off',
+        'think.minimal': 'Minimal',
+        'think.low': 'Low',
+        'think.medium': 'Medium',
+        'think.high': 'High',
+        'think.xhigh': 'Extra High'
     };
 
     // Load locale
@@ -44,8 +54,8 @@
             i18n = {
                 thinking: '招财正在思考...',
                 sendPlaceholder: '输入问题...',
-                planMode: '计划模式',
-                executeMode: '执行模式',
+                planMode: '计划',
+                executeMode: '执行',
                 defaultModel: '默认模型',
                 settings: '设置',
                 refresh: '刷新',
@@ -69,10 +79,21 @@
                 cmdWorkflow: '显示工作流',
                 cmdClear: '清空对话',
                 cmdHelp: '显示帮助',
-                triggeredSkill: '已触发技能'
+                triggeredSkill: '已触发技能',
+                'dropdown.mode': '执行模式',
+                'dropdown.model': '选择模型',
+                'dropdown.think': '思考深度',
+                'think.off': '关闭',
+                'think.minimal': '最小',
+                'think.low': '低',
+                'think.medium': '中',
+                'think.high': '高',
+                'think.xhigh': '超高'
             };
         }
         applyI18n();
+        // 语言切换后刷新下拉框
+        renderDropdowns();
     }
 
     // Apply i18n to DOM
@@ -92,16 +113,10 @@
             const key = el.getAttribute('data-i18n');
             if (i18n[key]) el.textContent = i18n[key];
         });
-        // Mode select options
-        const modeSelect = document.getElementById('modeSelect');
-        if (modeSelect) {
-            modeSelect.options[0].textContent = i18n.executeMode;
-            modeSelect.options[1].textContent = i18n.planMode;
-        }
     }
 
     // State
-    let isSending = false;
+    let isSending = false;     // chat.send RPC 正在发送
     let planMode = false;
     let attachments = []; // { type: 'file'|'image'|'reference', name, path?, data? }
     let messageQueue = []; // 消息队列: { id, text, attachments, createdAt }
@@ -109,9 +124,12 @@
     let connectionStatus = 'disconnected'; // 连接状态: connected/disconnected/connecting
     let isRefreshing = false; // 是否正在刷新
     let chatLoading = false; // 是否正在加载历史（对齐 webchat）
+    let lastHistoryHash = ''; // 上次 loadHistory 的内容指纹，跳过无变化的重建
+    let autoRefreshInterval = 2000; // 自动刷新间隔（ms）
     let autoRefreshTimer = null; // 自动刷新定时器
+    let chatRunId = null;      // 当前运行的 runId，非 null = 等待 AI 回复
     let currentSessionModel = null; // 当前会话的模型（会话级状态）
-    let currentThinkLevel = 'medium'; // 当前思考深度（会话级状态）
+    let currentThinkLevel = 'low'; // 当前思考深度（会话级状态）
 
     // xhigh 支持的模型列表
     const XHIGH_MODELS = [
@@ -131,9 +149,25 @@
     const attachBtn = document.getElementById('attachBtn');
     const attachmentsPreview = document.getElementById('attachmentsPreview');
     const inputBox = document.getElementById('inputBox');
-    const modeSelect = document.getElementById('modeSelect');
-    const modelSelect = document.getElementById('modelSelect');
-    const thinkSelect = document.getElementById('thinkSelect');
+    // Custom dropdowns
+    const modeDropdown = document.getElementById('modeDropdown');
+    const modeTrigger = document.getElementById('modeTrigger');
+    const modeLabel = document.getElementById('modeLabel');
+    const modeTitle = document.getElementById('modeTitle');
+    const modePopup = document.getElementById('modePopup');
+    const modeOptionsEl = document.getElementById('modeOptions');
+    const modelDropdown = document.getElementById('modelDropdown');
+    const modelTrigger = document.getElementById('modelTrigger');
+    const modelLabel = document.getElementById('modelLabel');
+    const modelTitle = document.getElementById('modelTitle');
+    const modelPopup = document.getElementById('modelPopup');
+    const modelOptionsEl = document.getElementById('modelOptions');
+    const thinkDropdown = document.getElementById('thinkDropdown');
+    const thinkTrigger = document.getElementById('thinkTrigger');
+    const thinkLabel = document.getElementById('thinkLabel');
+    const thinkTitle = document.getElementById('thinkTitle');
+    const thinkPopup = document.getElementById('thinkPopup');
+    const thinkOptionsEl = document.getElementById('thinkOptions');
     const filePickerOverlay = document.getElementById('filePickerOverlay');
     const queueContainer = document.getElementById('queueContainer');
     const queueList = document.getElementById('queueList');
@@ -202,35 +236,135 @@
         return html;
     }
 
-    // Render tool call
-    function renderToolCall(name, args) {
-        let summary = `🔧 ${name}`;
-        if (args) {
-            if (args.command) {
-                const cmd = args.command.length > 50 ? args.command.substring(0, 50) + '...' : args.command;
-                summary += `: ${cmd}`;
-            } else if (args.path) {
-                summary += `: ${args.path}`;
+    // ========== Tool Call Cards ==========
+
+    // 工具名称 → 图标 & 显示名映射
+    const TOOL_META = {
+        read:           { icon: '📄', label: 'Read' },
+        write:          { icon: '✏️', label: 'Write' },
+        edit:           { icon: '✏️', label: 'Edit' },
+        exec:           { icon: '⚡', label: 'Exec' },
+        process:        { icon: '⚡', label: 'Process' },
+        web_search:     { icon: '🔍', label: 'Search' },
+        web_fetch:      { icon: '🌐', label: 'Fetch' },
+        browser:        { icon: '🌐', label: 'Browser' },
+        image:          { icon: '🖼️', label: 'Image' },
+        memory_search:  { icon: '🧠', label: 'Memory' },
+        memory_get:     { icon: '🧠', label: 'Memory' },
+        message:        { icon: '💬', label: 'Message' },
+        cron:           { icon: '⏰', label: 'Cron' },
+        tts:            { icon: '🔊', label: 'TTS' },
+        canvas:         { icon: '🎨', label: 'Canvas' },
+        nodes:          { icon: '📱', label: 'Nodes' },
+        gateway:        { icon: '🔌', label: 'Gateway' },
+        session_status: { icon: '📊', label: 'Status' },
+    };
+
+    function getToolMeta(name) {
+        const n = (name || 'tool').toLowerCase().trim();
+        return TOOL_META[n] || { icon: '🔧', label: name || 'Tool' };
+    }
+
+    function getToolDetail(name, args) {
+        if (!args || typeof args !== 'object') return '';
+        const n = (name || '').toLowerCase();
+        if (n === 'exec' && args.command) {
+            const cmd = args.command.length > 80 ? args.command.substring(0, 80) + '…' : args.command;
+            return cmd;
+        }
+        if ((n === 'read' || n === 'write' || n === 'edit') && (args.path || args.file_path)) {
+            const p = args.path || args.file_path;
+            // 缩短用户目录
+            return p.replace(/\/Users\/[^/]+/g, '~').replace(/\/home\/[^/]+/g, '~');
+        }
+        if (n === 'web_search' && args.query) return args.query;
+        if (n === 'web_fetch' && args.url) return args.url;
+        if (n === 'browser' && args.action) return args.action;
+        if (n === 'message' && args.action) return args.action;
+        if (n === 'image' && args.prompt) {
+            return args.prompt.length > 60 ? args.prompt.substring(0, 60) + '…' : args.prompt;
+        }
+        // 通用：取第一个有意义的 key
+        for (const key of ['path', 'file_path', 'command', 'query', 'url', 'action', 'name', 'text']) {
+            if (typeof args[key] === 'string' && args[key]) {
+                const v = args[key];
+                return v.length > 80 ? v.substring(0, 80) + '…' : v;
             }
         }
-        
-        return `<div class="tool-call" onclick="this.classList.toggle('expanded')">
-            <div class="tool-call-header">
-                <span>▸</span>
-                <span>${summary}</span>
+        return '';
+    }
+
+    function renderToolCard(name, args) {
+        const meta = getToolMeta(name);
+        const detail = getToolDetail(name, args);
+        return `<div class="tool-card">
+            <div class="tool-card-header">
+                <span class="tool-card-icon">${meta.icon}</span>
+                <span class="tool-card-label">${escapeHtml(meta.label)}</span>
+                <span class="tool-card-check">✓</span>
             </div>
-            <div class="tool-call-content">${JSON.stringify(args, null, 2)}</div>
+            ${detail ? `<div class="tool-card-detail">${escapeHtml(detail)}</div>` : ''}
         </div>`;
     }
 
-    // Add message with optional attachments
-    function addMessage(role, content, messageAttachments = null, isToolCall = false, toolArgs = null) {
+    /**
+     * 检查是否已滚动到底部（允许 30px 误差）
+     */
+    function isScrolledToBottom() {
+        const threshold = 30;
+        return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight <= threshold;
+    }
+
+    /**
+     * 向聊天区追加工具卡片（卡片横向滚动容器）
+     * @param {Array} toolCalls - 工具调用数据
+     * @param {boolean} [skipScroll=false] - 是否跳过自动滚动（批量加载时使用）
+     */
+    function addToolCards(toolCalls, skipScroll) {
+        if (!toolCalls || toolCalls.length === 0) return;
+
+        // 记录添加前是否在底部
+        const wasAtBottom = isScrolledToBottom();
+
+        // 查找或创建当前末尾的 tool-cards-row
+        let lastRow = messages.lastElementChild;
+        let row;
+        if (lastRow && lastRow.classList.contains('tool-cards-row')) {
+            row = lastRow;
+        } else {
+            row = document.createElement('div');
+            row.className = 'tool-cards-row';
+            messages.appendChild(row);
+        }
+
+        for (const tc of toolCalls) {
+            const card = document.createElement('div');
+            card.innerHTML = renderToolCard(tc.name, tc.args);
+            // 新卡片追加到末尾（按时间顺序）
+            row.appendChild(card.firstElementChild);
+        }
+
+        // 只有之前就在底部时才自动滚动（避免用户正在看历史时被拉走）
+        if (!skipScroll && wasAtBottom) {
+            scrollToBottom();
+        }
+    }
+
+    /**
+     * Add message with optional attachments
+     * @param {string} role
+     * @param {string} content
+     * @param {Array|null} messageAttachments
+     * @param {boolean} [skipScroll=false] - 是否跳过自动滚动（批量加载时使用）
+     */
+    function addMessage(role, content, messageAttachments, skipScroll) {
+        // 记录添加前是否在底部
+        const wasAtBottom = isScrolledToBottom();
+
         const div = document.createElement('div');
         div.className = `message ${role}`;
         
-        if (isToolCall) {
-            div.innerHTML = renderToolCall(content, toolArgs);
-        } else if (role === 'assistant') {
+        if (role === 'assistant') {
             div.innerHTML = renderMarkdown(content);
         } else if (role === 'user') {
             // User message: show attachments + text with line breaks
@@ -261,7 +395,11 @@
         }
         
         messages.appendChild(div);
-        scrollToBottom();
+        
+        // 只有之前就在底部时才自动滚动
+        if (!skipScroll && wasAtBottom) {
+            scrollToBottom();
+        }
     }
 
     // Show thinking indicator
@@ -294,10 +432,17 @@
     }
 
     // Update send button state
+    /**
+     * 是否正在忙（发送中 或 等待 AI 回复），对齐 webchat 的 Qr 函数
+     */
+    function isBusy() {
+        return isSending || !!chatRunId;
+    }
+
     function updateSendButtonState() {
         const hasInput = messageInput.value.trim().length > 0 || attachments.length > 0;
         
-        if (isSending) {
+        if (isBusy()) {
             sendBtn.classList.remove('active');
             sendBtn.classList.add('sending');
             sendBtn.title = i18n.stop;
@@ -423,7 +568,7 @@
 
     function processNextQueue() {
         if (messageQueue.length === 0) return;
-        if (isSending) return;
+        if (isBusy()) return;
         
         const next = messageQueue.shift();
         renderQueue();
@@ -467,7 +612,7 @@
     // ========== 自动刷新 ==========
 
     /**
-     * 是否可以执行刷新（手动 & 自动共用条件，对齐 webchat）
+     * 是否可以执行刷新
      */
     function canRefresh() {
         return !chatLoading && connectionStatus === 'connected';
@@ -487,27 +632,37 @@
         if (!canRefresh()) return;
         
         chatLoading = true;
+        isRefreshing = true;
         updateRefreshButtonDisabled();
         setRefreshButtonState(true);
         
         try {
+            // 记录刷新前的滚动位置（自动刷新时保持位置）
+            window._refreshScrollState = {
+                wasAtBottom: isScrolledToBottom(),
+                scrollTop: messagesContainer.scrollTop
+            };
             // 请求后端刷新
             vscode.postMessage({ type: 'refresh' });
         } catch (err) {
             console.error('Refresh failed:', err);
             chatLoading = false;
+            isRefreshing = false;
             updateRefreshButtonDisabled();
         }
     }
 
+    /**
+     * 自动刷新：setInterval 固定间隔
+     * 只在等待 AI 回复期间（chatRunId 非空）实际执行刷新
+     */
     function startAutoRefresh(interval) {
         stopAutoRefresh();
-        
+        autoRefreshInterval = interval;
         if (interval <= 0) return;
         
         autoRefreshTimer = setInterval(() => {
-            // 自动刷新使用和手动刷新相同的条件
-            if (canRefresh() && !isRefreshing) {
+            if (!!chatRunId && canRefresh() && !isRefreshing) {
                 refreshSession();
             }
         }, interval);
@@ -745,8 +900,7 @@ ${shortError}
         const text = messageInput.value.trim();
         if (!text && attachments.length === 0) return;
 
-        if (isSending) {
-            // 正在发送中 → 加入队列
+        if (isBusy()) {
             enqueueMessage(text, attachments);
             
             // 清空输入框
@@ -1173,7 +1327,7 @@ ${shortError}
 
     // Send/stop button
     sendBtn.addEventListener('click', () => {
-        if (isSending) {
+        if (isBusy()) {
             stopGeneration();
         } else {
             sendMessage();
@@ -1195,63 +1349,120 @@ ${shortError}
         vscode.postMessage({ type: 'openSettings' });
     });
 
-    // Mode select
-    modeSelect.addEventListener('change', (e) => {
-        planMode = e.target.value === 'plan';
-        vscode.postMessage({ type: 'setPlanMode', enabled: planMode });
-    });
+    // ========== Custom Dropdowns ==========
 
-    // Model select
-    modelSelect.addEventListener('change', (e) => {
-        const newModel = e.target.value;
-        
-        // 记住会话级的模型选择
-        currentSessionModel = newModel;
-        
-        // 立即更新 UI
-        if (window._modelData) {
-            window._modelData.forEach(m => m.selected = m.id === newModel);
-            renderModelOptions(false);
-        }
-        
-        // 发送到 Backend
-        vscode.postMessage({ type: 'setModel', model: newModel });
+    let openDropdownId = null; // 当前打开的 dropdown id
 
-        // 模型切换后，thinking 重置为 medium
-        currentThinkLevel = 'medium';
-        renderThinkOptions(false);
-        vscode.postMessage({ type: 'setThinking', level: 'medium' });
-    });
-
-    modelSelect.addEventListener('focus', () => renderModelOptions(true));
-    modelSelect.addEventListener('blur', () => renderModelOptions(false));
-    modelSelect.addEventListener('mousedown', () => renderModelOptions(true));
-
-    function renderModelOptions(showFull) {
-        if (!window._modelData) return;
-        const currentValue = modelSelect.value;
-        modelSelect.innerHTML = window._modelData.map(m => {
-            const displayName = showFull ? m.fullName : m.shortName;
-            return `<option value="${m.id}" title="${escapeHtml(m.fullName)}" ${m.id === currentValue ? 'selected' : ''}>${escapeHtml(displayName)}</option>`;
-        }).join('');
-        modelSelect.title = window._modelData.find(m => m.id === currentValue)?.fullName || '';
+    function closeAllDropdowns() {
+        document.querySelectorAll('.dropdown-popup.open').forEach(p => p.classList.remove('open'));
+        openDropdownId = null;
     }
 
-    // Think select
-    thinkSelect.addEventListener('change', (e) => {
-        const newLevel = e.target.value;
-        currentThinkLevel = newLevel;
-        renderThinkOptions(false);
-        vscode.postMessage({ type: 'setThinking', level: newLevel });
+    function toggleDropdown(id) {
+        const popup = document.getElementById(id + 'Popup');
+        if (!popup) return;
+        if (openDropdownId === id) {
+            closeAllDropdowns();
+        } else {
+            closeAllDropdowns();
+            popup.classList.add('open');
+            openDropdownId = id;
+        }
+    }
+
+    // 点击外部关闭
+    document.addEventListener('click', (e) => {
+        if (openDropdownId && !e.target.closest('.toolbar-dropdown')) {
+            closeAllDropdowns();
+        }
     });
 
-    thinkSelect.addEventListener('focus', () => renderThinkOptions(true));
-    thinkSelect.addEventListener('blur', () => renderThinkOptions(false));
-    thinkSelect.addEventListener('mousedown', () => renderThinkOptions(true));
+    // --- Mode dropdown ---
+    modeTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDropdown('mode');
+    });
+
+    function renderModeDropdown() {
+        modeTitle.textContent = i18n['dropdown.mode'];
+        modeLabel.textContent = planMode ? i18n.planMode : i18n.executeMode;
+        const options = [
+            { value: 'execute', label: i18n.executeMode },
+            { value: 'plan', label: i18n.planMode }
+        ];
+        const currentValue = planMode ? 'plan' : 'execute';
+        modeOptionsEl.innerHTML = options.map(opt =>
+            `<div class="dropdown-option${opt.value === currentValue ? ' active' : ''}" data-value="${opt.value}">
+                <span>${escapeHtml(opt.label)}</span>
+                <span class="check">✓</span>
+            </div>`
+        ).join('');
+    }
+
+    modeOptionsEl.addEventListener('click', (e) => {
+        const option = e.target.closest('.dropdown-option');
+        if (!option) return;
+        const value = option.dataset.value;
+        planMode = value === 'plan';
+        vscode.postMessage({ type: 'setPlanMode', enabled: planMode });
+        renderModeDropdown();
+        closeAllDropdowns();
+    });
+
+    // --- Model dropdown ---
+    modelTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDropdown('model');
+    });
+
+    function renderModelDropdown() {
+        modelTitle.textContent = i18n['dropdown.model'];
+        if (!window._modelData || window._modelData.length === 0) {
+            modelLabel.textContent = i18n.defaultModel;
+            modelOptionsEl.innerHTML = '';
+            return;
+        }
+        const current = currentSessionModel || window._modelData.find(m => m.selected)?.id || '';
+        const currentModel = window._modelData.find(m => m.id === current);
+        modelLabel.textContent = currentModel ? currentModel.shortName : i18n.defaultModel;
+        modelLabel.title = currentModel ? currentModel.fullName : '';
+
+        modelOptionsEl.innerHTML = window._modelData.map(m =>
+            `<div class="dropdown-option${m.id === current ? ' active' : ''}" data-value="${escapeHtml(m.id)}" title="${escapeHtml(m.fullName)}">
+                <span>${escapeHtml(m.fullName)}</span>
+                <span class="check">✓</span>
+            </div>`
+        ).join('');
+    }
+
+    modelOptionsEl.addEventListener('click', (e) => {
+        const option = e.target.closest('.dropdown-option');
+        if (!option) return;
+        const newModel = option.dataset.value;
+
+        currentSessionModel = newModel;
+        if (window._modelData) {
+            window._modelData.forEach(m => m.selected = m.id === newModel);
+        }
+
+        vscode.postMessage({ type: 'setModel', model: newModel });
+
+        // 模型切换后，thinking 重置为 low
+        currentThinkLevel = 'low';
+        vscode.postMessage({ type: 'setThinking', level: 'low' });
+
+        renderDropdowns();
+        closeAllDropdowns();
+    });
+
+    // --- Think dropdown ---
+    thinkTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDropdown('think');
+    });
 
     function getThinkLevels() {
         const levels = ['off', 'minimal', 'low', 'medium', 'high'];
-        // 当前模型支持 xhigh 时才显示
         const model = (currentSessionModel || '').toLowerCase();
         if (XHIGH_MODELS.some(m => m.toLowerCase() === model)) {
             levels.push('xhigh');
@@ -1259,18 +1470,39 @@ ${shortError}
         return levels;
     }
 
-    function renderThinkOptions(showFull) {
+    function renderThinkDropdown() {
+        thinkTitle.textContent = i18n['dropdown.think'];
+        thinkLabel.textContent = i18n[`think.${currentThinkLevel}`] || currentThinkLevel;
+
         const levels = getThinkLevels();
-        thinkSelect.innerHTML = levels.map(level => {
-            const shortLabel = t(`think.${level}`) || level;
-            const fullLabel = t(`think.${level}.full`) || level;
-            const displayLabel = showFull ? fullLabel : shortLabel;
-            return `<option value="${level}" ${level === currentThinkLevel ? 'selected' : ''}>${escapeHtml(displayLabel)}</option>`;
+        thinkOptionsEl.innerHTML = levels.map(level => {
+            const label = i18n[`think.${level}`] || level;
+            return `<div class="dropdown-option${level === currentThinkLevel ? ' active' : ''}" data-value="${level}">
+                <span>${escapeHtml(label)}</span>
+                <span class="check">✓</span>
+            </div>`;
         }).join('');
     }
 
-    // 初始化 think 选项
-    renderThinkOptions(false);
+    thinkOptionsEl.addEventListener('click', (e) => {
+        const option = e.target.closest('.dropdown-option');
+        if (!option) return;
+        const newLevel = option.dataset.value;
+        currentThinkLevel = newLevel;
+        vscode.postMessage({ type: 'setThinking', level: newLevel });
+        renderThinkDropdown();
+        closeAllDropdowns();
+    });
+
+    // --- Render all dropdowns ---
+    function renderDropdowns() {
+        renderModeDropdown();
+        renderModelDropdown();
+        renderThinkDropdown();
+    }
+
+    // 初始化
+    renderDropdowns();
 
     // File picker
     closeFilePicker.addEventListener('click', hideFilePicker);
@@ -1308,7 +1540,13 @@ ${shortError}
                 break;
                 
             case 'addToolCall':
-                addMessage('assistant', message.name, null, true, message.args);
+                addToolCards([{ name: message.name, args: message.args }]);
+                break;
+
+            case 'addToolCalls':
+                if (message.toolCalls && message.toolCalls.length > 0) {
+                    addToolCards(message.toolCalls);
+                }
                 break;
                 
             case 'showThinking':
@@ -1319,8 +1557,25 @@ ${shortError}
                 hideThinking();
                 break;
                 
-            case 'sendingComplete':
+            case 'sendingStarted':
+                // 正在发送 RPC
+                isSending = true;
+                updateSendButtonState();
+                break;
+
+            case 'waitingReply':
+                // RPC 已发送，等待 AI 回复（chatRunId 追踪状态）
                 isSending = false;
+                chatRunId = message.runId || true;
+                updateSendButtonState();
+                startAutoRefresh(autoRefreshInterval);
+                break;
+
+            case 'sendingComplete':
+                // AI 回复完成（收到 chat final 事件）
+                isSending = false;
+                chatRunId = null;
+                stopAutoRefresh();
                 updateSendButtonState();
                 hideThinking();
                 
@@ -1382,19 +1637,38 @@ ${shortError}
                 
             case 'loadHistory':
                 if (message.messages && message.messages.length > 0) {
+                    // 计算内容指纹，跳过无变化的重建（避免自动刷新闪烁）
+                    const hash = message.messages.map(m => 
+                        `${m.role}:${(m.content || '').length}:${(m.toolCalls || []).length}`
+                    ).join('|');
+                    if (hash === lastHistoryHash) {
+                        // 内容没变，跳过重建
+                        break;
+                    }
+                    lastHistoryHash = hash;
+
+                    // 获取刷新前的滚动状态
+                    const scrollState = window._refreshScrollState || { wasAtBottom: true };
+                    window._refreshScrollState = null;
+
                     messages.innerHTML = '';
                     message.messages.forEach(msg => {
-                        if (msg.toolCall) {
-                            addMessage('assistant', msg.toolCall.name, null, true, msg.toolCall.args);
-                        } else {
-                            addMessage(msg.role, msg.content);
+                        // 先渲染工具调用卡片（在文本之前），跳过自动滚动
+                        if (msg.toolCalls && msg.toolCalls.length > 0) {
+                            addToolCards(msg.toolCalls, true);
+                        }
+                        // 再渲染文本内容，跳过自动滚动
+                        if (msg.content) {
+                            addMessage(msg.role, msg.content, null, true);
                         }
                     });
                     
-                    // 刷新后滚动到底部
-                    setTimeout(() => {
-                        messages.scrollTop = messages.scrollHeight;
-                    }, 100);
+                    // 批量渲染完成后，只有之前在底部才滚动
+                    requestAnimationFrame(() => {
+                        if (scrollState.wasAtBottom) {
+                            scrollToBottom();
+                        }
+                    });
                 }
                 break;
                 
@@ -1403,11 +1677,9 @@ ${shortError}
                     id: m.id,
                     fullName: m.name,
                     shortName: m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id,
-                    // 如果会话有自己的模型状态，使用会话状态；否则使用全局默认
                     selected: currentSessionModel ? (m.id === currentSessionModel) : m.selected
                 }));
                 
-                // 如果会话还没有设置模型，使用全局默认
                 if (!currentSessionModel) {
                     const defaultModel = window._modelData.find(m => m.selected);
                     if (defaultModel) {
@@ -1415,19 +1687,17 @@ ${shortError}
                     }
                 }
                 
-                renderModelOptions(false);
-                // 模型列表更新后，重新渲染 think 选项（xhigh 可能变化）
-                renderThinkOptions(false);
+                renderDropdowns();
                 break;
 
             case 'updateThinking':
-                currentThinkLevel = message.level || 'medium';
-                renderThinkOptions(false);
+                currentThinkLevel = message.level || 'low';
+                renderThinkDropdown();
                 break;
                 
             case 'updatePlanMode':
                 planMode = message.enabled;
-                modeSelect.value = planMode ? 'plan' : 'execute';
+                renderModeDropdown();
                 break;
                 
             case 'projectStatus':
@@ -1458,9 +1728,14 @@ ${shortError}
                 startAutoRefresh(message.interval);
                 break;
                 
+            case 'systemNotification':
+                showSystemNotification(message.message, message.timeout);
+                break;
+                
             case 'refreshComplete':
                 // 刷新完成
                 chatLoading = false;
+                isRefreshing = false;
                 setRefreshButtonState(false);
                 updateRefreshButtonDisabled();
                 break;
@@ -1510,6 +1785,22 @@ ${shortError}
     updateSendButtonState();
     vscode.postMessage({ type: 'ready' });
 })();
+
+    function showSystemNotification(text, timeout) {
+        const notif = document.createElement('div');
+        notif.className = 'system-notification';
+        notif.textContent = text;
+        document.body.appendChild(notif);
+        
+        // Trigger reflow
+        void notif.offsetHeight;
+        notif.classList.add('show');
+        
+        setTimeout(() => {
+            notif.classList.remove('show');
+            setTimeout(() => notif.remove(), 300);
+        }, timeout || 2000);
+    }
 
     // ========== 变更卡片渲染 ==========
 

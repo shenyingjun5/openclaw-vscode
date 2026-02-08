@@ -102,16 +102,36 @@
         <!-- 底部工具栏 -->
         <div class="input-toolbar">
             <div class="toolbar-left">
-                <select class="toolbar-select" id="modeSelect">
-                    <option value="execute" data-i18n="executeMode"></option>
-                    <option value="plan" data-i18n="planMode"></option>
-                </select>
-                <select class="toolbar-select" id="modelSelect">
-                    <!-- Models loaded dynamically -->
-                </select>
-                <select class="toolbar-select" id="thinkSelect">
-                    <!-- Think levels loaded dynamically -->
-                </select>
+                <div class="toolbar-dropdown" id="modeDropdown">
+                    <button class="dropdown-trigger" id="modeTrigger">
+                        <span class="dropdown-label" id="modeLabel"></span>
+                        <span class="dropdown-arrow">▾</span>
+                    </button>
+                    <div class="dropdown-popup" id="modePopup">
+                        <div class="dropdown-title" id="modeTitle"></div>
+                        <div class="dropdown-options" id="modeOptions"></div>
+                    </div>
+                </div>
+                <div class="toolbar-dropdown model-dropdown" id="modelDropdown">
+                    <button class="dropdown-trigger" id="modelTrigger">
+                        <span class="dropdown-label" id="modelLabel"></span>
+                        <span class="dropdown-arrow">▾</span>
+                    </button>
+                    <div class="dropdown-popup" id="modelPopup">
+                        <div class="dropdown-title" id="modelTitle"></div>
+                        <div class="dropdown-options" id="modelOptions"></div>
+                    </div>
+                </div>
+                <div class="toolbar-dropdown" id="thinkDropdown">
+                    <button class="dropdown-trigger" id="thinkTrigger">
+                        <span class="dropdown-label" id="thinkLabel"></span>
+                        <span class="dropdown-arrow">▾</span>
+                    </button>
+                    <div class="dropdown-popup" id="thinkPopup">
+                        <div class="dropdown-title" id="thinkTitle"></div>
+                        <div class="dropdown-options" id="thinkOptions"></div>
+                    </div>
+                </div>
             </div>
             <button class="send-btn" id="sendBtn" data-i18n-title="send">
                 <svg class="send-icon">

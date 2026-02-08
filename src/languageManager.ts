@@ -97,9 +97,9 @@ export class LanguageManager {
         };
 
         // 英文是默认，不需要额外指令
-        if (lang === 'en') {
-            return '';
-        }
+        // if (lang === 'en') {
+        //     return '';
+        // }
 
         const langName = langNames[lang] || lang;
         return `Please respond in ${langName} unless the user explicitly requests a different language.`;

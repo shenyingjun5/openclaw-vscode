@@ -20,7 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 初始化 Gateway 客户端
     const config = vscode.workspace.getConfiguration('openclaw');
-    const gatewayUrl = config.get<string>('gatewayUrl') || 'http://127.0.0.1:18789';
+    const gatewayUrl = config.get<string>('gatewayUrl') || 'http://localhost:18789';
     const openclawPath = config.get<string>('openclawPath') || '';
 
     gatewayClient = new GatewayClient(gatewayUrl, openclawPath || undefined);

@@ -150,7 +150,7 @@ export class ChatSessionManager {
      */
     buildMessage(
         userMessage: string,
-        sessionId: string,
+        sessionKey: string,
         forceSkillName?: string,
         forceWorkflow?: boolean
     ): MessageBuildResult {
@@ -170,29 +170,18 @@ export class ChatSessionManager {
 
         // 强制 workflow 时重置已发送标记
         if (forceWorkflow) {
-            builder.resetSession(sessionId);
+            builder.resetSession(sessionKey);
         }
 
         const { message, triggeredSkill } = builder.build(
             userMessage,
             this._projectConfig,
             matchedSkill,
-            sessionId
+            sessionKey
         );
 
-        // 仅在会话首条消息时添加语言指令
-        const languageManager = LanguageManager.getInstance();
-        const languageInstruction = languageManager.getLanguageInstruction();
-        
-        let finalMessage = message;
-        if (languageInstruction && !this._languageSentSessions.has(sessionId)) {
-            // 将语言指令添加到消息开头（仅第一次）
-            finalMessage = `${languageInstruction}\n\n${message}`;
-            this._languageSentSessions.add(sessionId);
-        }
-
         return {
-            message: finalMessage,
+            message,
             triggeredSkill
         };
     }
@@ -200,10 +189,10 @@ export class ChatSessionManager {
     /**
      * 重置会话（清除 workflow 已发送标记）
      */
-    resetSession(sessionId: string): void {
+    resetSession(sessionKey: string): void {
         const builder = getMessageBuilder();
-        builder.resetSession(sessionId);
-        this._languageSentSessions.delete(sessionId);
+        builder.resetSession(sessionKey);
+        this._languageSentSessions.delete(sessionKey);
     }
 
     /**
@@ -322,29 +311,98 @@ export class ChatSessionManager {
         }
     }
 
+
+    /**
+     * 发送语言设置消息（系统级）
+     */
+    /**
+     * 发送上下文设置（语言 + VSCode 工作区），fire-and-forget 不等回复
+     */
+    async sendContextSetup(gateway: any, sessionKey: string): Promise<void> {
+        const parts: string[] = [];
+
+        // 语言指令
+        const languageManager = LanguageManager.getInstance();
+        const instruction = languageManager.getLanguageInstruction();
+        if (instruction) {
+            parts.push(instruction);
+        }
+
+        // VSCode 工作区上下文
+        const workspaceDir = this._getWorkspaceDir();
+        if (workspaceDir) {
+            const projectName = require('path').basename(workspaceDir);
+            parts.push(
+                `[VSCode Context]\n` +
+                `The user is currently editing a project in VSCode:\n` +
+                `- Project path: ${workspaceDir}\n` +
+                `- Project name: ${projectName}\n\n` +
+                `When the user asks about code, files, or project-related tasks, operate in this project directory, not your default workspace.`
+            );
+        }
+
+        if (parts.length === 0) return;
+
+        const setupMessage = `[System Setup - No reply needed]\n\n${parts.join('\n\n')}`;
+
+        try {
+            // Fire-and-forget: 只发送不等回复，避免阻塞后续用户消息
+            gateway.sendMessageFireAndForget(sessionKey, setupMessage);
+            this._languageSentSessions.add(sessionKey);
+        } catch (err) {
+            console.error('Failed to send context setup:', err);
+        }
+    }
+
+    /**
+     * 检查是否已发送上下文设置
+     */
+    hasSentContextSetup(sessionKey: string): boolean {
+        return this._languageSentSessions.has(sessionKey);
+    }
+
     /**
      * 加载会话历史（清理 think/final 标签，保留工具调用）
      * limit: 200 对齐 webchat
      */
-    async loadHistory(gateway: any, sessionId: string): Promise<Array<{ role: string; content: string; toolCall?: any }>> {
+    async loadHistory(gateway: any, sessionKey: string): Promise<Array<{ role: string; content: string; toolCalls?: any[] }>> {
         try {
-            const history = await gateway.getHistory(sessionId, 200);
+            const history = await gateway.getHistory(sessionKey, 200);
 
             // 如果有历史记录，说明不是新会话，标记语言指令已发送
             if (history && history.length > 0) {
-                this._languageSentSessions.add(sessionId);
+                this._languageSentSessions.add(sessionKey);
             }
 
-            return history.map((msg: any) => {
+            const result: Array<{ role: string; content: string; toolCalls?: any[] }> = [];
+            let skipNextAssistant = false;
+
+            for (const msg of history) {
                 let content = msg.content;
-                
+                const toolCalls: any[] = [];
+
                 // 处理 content 数组格式（Gateway 返回 [{type, text}] 结构）
                 if (Array.isArray(content)) {
-                    content = content
-                        .filter((c: any) => c.type === 'text' || c.type === 'output_text')
-                        .map((c: any) => c.text || '')
-                        .join('');
+                    const textParts: string[] = [];
+                    for (const c of content) {
+                        if (!c || typeof c !== 'object') continue;
+                        const type = (c.type || '').toLowerCase();
+                        if (type === 'text' || type === 'output_text') {
+                            if (c.text) textParts.push(c.text);
+                        } else if (type === 'toolcall' || type === 'tool_call' || type === 'tool_use') {
+                            toolCalls.push({
+                                name: c.name || 'tool',
+                                args: c.arguments || c.args || c.input
+                            });
+                        }
+                        // 跳过 toolResult、thinking 等
+                    }
+                    content = textParts.join('');
                 }
+
+                // 跳过 toolResult 消息
+                const role = (msg.role || '').toLowerCase();
+                if (role === 'toolresult' || role === 'tool_result' || role === 'tool') continue;
                 
                 // 字符串格式兜底
                 content = String(content || '');
@@ -352,14 +410,35 @@ export class ChatSessionManager {
                 content = content.replace(/<\/?final>/g, '');
                 content = content.trim();
                 
-                // 🔧 保留工具调用信息
-                const result: any = { role: msg.role, content };
-                if (msg.toolCall) {
-                    result.toolCall = msg.toolCall;
+                // 过滤掉上下文设置相关的系统消息和回复
+                const isSetupMessage = content.includes('[System Setup - No reply needed]') ||
+                    content.includes('Please confirm with "Language settings updated"');
+                if (isSetupMessage) {
+                    skipNextAssistant = true;
+                    continue;
                 }
-                
-                return result;
-            }).filter((m: any) => m.content || m.toolCall);
+                if (skipNextAssistant && (msg.role === 'assistant')) {
+                    skipNextAssistant = false;
+                    // 也过滤掉旧格式的确认回复
+                    continue;
+                }
+                skipNextAssistant = false;
+                // 过滤旧格式的独立确认回复
+                if (content.includes('Language settings updated')) {
+                    continue;
+                }
+
+                // 跳过没有内容也没有工具调用的消息
+                if (!content && toolCalls.length === 0) continue;
+
+                const entry: any = { role: msg.role, content };
+                if (toolCalls.length > 0) {
+                    entry.toolCalls = toolCalls;
+                }
+                result.push(entry);
+            }
+
+            return result;
         } catch (err) {
             return [];
         }

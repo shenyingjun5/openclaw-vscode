@@ -2,7 +2,7 @@
   "name": "openclaw",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
@@ -109,23 +109,13 @@
       "properties": {
         "openclaw.gatewayUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:18789",
+          "default": "http://localhost:18789",
           "description": "%config.gatewayUrl.description%"
         },
         "openclaw.openclawPath": {
           "type": "string",
           "default": "",
           "description": "%config.openclawPath.description%"
-        },
-        "openclaw.defaultSession": {
-          "type": "string",
-          "default": "main",
-          "description": "%config.defaultSession.description%"
-        },
-        "openclaw.planMode": {
-          "type": "boolean",
-          "default": false,
-          "description": "%config.planMode.description%"
         },
         "openclaw.aiOutputLanguage": {
           "type": "string",
@@ -148,7 +138,7 @@
         },
         "openclaw.autoRefreshInterval": {
           "type": "number",
-          "default": 10000,
+          "default": 2000,
           "minimum": 0,
           "description": "%config.autoRefreshInterval.description%",
           "markdownDescription": "%config.autoRefreshInterval.markdownDescription%"

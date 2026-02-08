@@ -4,8 +4,6 @@
   "config.title": "招财",
   "config.gatewayUrl.description": "OpenClaw Gateway 服务地址",
   "config.openclawPath.description": "openclaw 可执行文件路径（留空自动检测）。示例：C:\\\\Users\\\\you\\\\AppData\\\\Roaming\\\\npm\\\\openclaw.cmd",
-  "config.defaultSession.description": "默认会话 ID",
-  "config.planMode.description": "启用计划模式（AI 先制定计划再执行）",
   "config.aiOutputLanguage.description": "AI 回复使用的语言",
   "config.aiOutputLanguage.enum.auto": "跟随系统语言",
   "config.aiOutputLanguage.enum.zh-CN": "简体中文",

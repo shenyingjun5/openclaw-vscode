@@ -225,14 +225,6 @@ export class GatewayWSClient {
                         }
                     }
                 }
-                
-                // 🔧 新增：处理工具调用事件
-                if (msg.event === 'agent' && msg.payload?.kind === 'tool.call') {
-                    this._emitEvent('tool.call', {
-                        name: msg.payload.name,
-                        args: msg.payload.args
-                    });
-                }
             }
         } catch (err) {
             console.error('[GatewayWS] Failed to parse message:', err);
@@ -255,7 +247,7 @@ export class GatewayWSClient {
      * 发送消息到会话
      */
     async sendMessage(
-        sessionId: string,
+        sessionKey: string,
         message: string,
         options?: {
             stream?: boolean;
@@ -273,18 +265,30 @@ export class GatewayWSClient {
         // Set up a listener for streaming chat events before sending
         let fullContent = '';
         const chatDone = new Promise<string>((resolve, reject) => {
-            const timeout = setTimeout(() => {
+            // 活动超时：只要有 delta 就重置，真正无响应才超时
+            const IDLE_TIMEOUT = 600000; // 10 分钟无活动才超时
+            let idleTimer = setTimeout(() => {
                 this.off('chat', handler);
                 reject(new Error('Request timeout'));
-            }, 120000); // 2 min timeout for agent runs
+            }, IDLE_TIMEOUT);
+
+            const resetIdleTimer = () => {
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => {
+                    this.off('chat', handler);
+                    reject(new Error('Request timeout'));
+                }, IDLE_TIMEOUT);
+            };
 
             const handler = (payload: any) => {
                 // Only handle events for our session
                 // Gateway may prefix sessionKey with "agent:<agentId>:"
                 const eventKey = payload?.sessionKey ?? '';
-                if (eventKey !== sessionId && !eventKey.endsWith(':' + sessionId)) return;
+                if (eventKey !== sessionKey && !eventKey.endsWith(':' + sessionKey)) return;
 
                 if (payload.state === 'delta') {
+                    // 收到数据，重置超时
+                    resetIdleTimer();
                     // Extract text from delta message
                     const text = this._extractText(payload.message);
                     if (typeof text === 'string') {
@@ -294,7 +298,7 @@ export class GatewayWSClient {
                         }
                     }
                 } else if (payload.state === 'final') {
-                    clearTimeout(timeout);
+                    clearTimeout(idleTimer);
                     this.off('chat', handler);
                     // Extract final text
                     const finalText = this._extractText(payload.message);
@@ -303,11 +307,11 @@ export class GatewayWSClient {
                     }
                     resolve(fullContent);
                 } else if (payload.state === 'error') {
-                    clearTimeout(timeout);
+                    clearTimeout(idleTimer);
                     this.off('chat', handler);
                     reject(new Error(payload.errorMessage || 'chat error'));
                 } else if (payload.state === 'aborted') {
-                    clearTimeout(timeout);
+                    clearTimeout(idleTimer);
                     this.off('chat', handler);
                     resolve(fullContent || '(已中止)');
                 }
@@ -318,7 +322,7 @@ export class GatewayWSClient {
 
         // Send the message
         await this._request('chat.send', {
-            sessionKey: sessionId,
+            sessionKey: sessionKey,
             message,
             deliver: false,
             idempotencyKey,
@@ -353,13 +357,13 @@ export class GatewayWSClient {
     /**
      * 获取会话历史
      */
-    async getHistory(sessionId: string, limit?: number): Promise<Message[]> {
+    async getHistory(sessionKey: string, limit?: number): Promise<Message[]> {
         if (!this.connected) {
             await this.connect();
         }
 
         const payload = await this._request('chat.history', {
-            sessionKey: sessionId,
+            sessionKey: sessionKey,
             limit
         });
 
@@ -415,12 +419,12 @@ export class GatewayWSClient {
     /**
      * 删除会话
      */
-    async deleteSession(sessionId: string): Promise<void> {
+    async deleteSession(sessionKey: string): Promise<void> {
         if (!this.connected) {
             await this.connect();
         }
 
-        await this._request('sessions.delete', { key: sessionId });
+        await this._request('sessions.delete', { key: sessionKey });
     }
 
     /**
@@ -441,6 +445,13 @@ export class GatewayWSClient {
             key: sessionKey,
             ...patch
         });
+    }
+
+    /**
+     * 公开的 RPC 请求（用于 fire-and-forget 等场景）
+     */
+    async sendRpc(method: string, params: any): Promise<any> {
+        return this._request(method, params);
     }
 
     /**

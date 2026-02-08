@@ -14,7 +14,7 @@ export class MessageBuilder {
         userMessage: string,
         config: ProjectConfig | null,
         matchedSkill: ProjectSkill | null,
-        sessionId: string
+        sessionKey: string
     ): BuildResult {
         const parts: string[] = [];
         let workflowIncluded = false;
@@ -36,8 +36,8 @@ export class MessageBuilder {
         };
     }
     
-    resetSession(sessionId: string) {
-        this.workflowSent.delete(sessionId);
+    resetSession(sessionKey: string) {
+        this.workflowSent.delete(sessionKey);
     }
     
     resetAll() {

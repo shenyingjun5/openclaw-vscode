@@ -257,10 +257,73 @@ export class GatewayClient {
     }
 
     /**
+     * 发送消息但不等回复（fire-and-forget），用于 context setup 等不需要响应的消息
+     */
+    public sendMessageFireAndForget(sessionKey: string, message: string): void {
+        if (this._mode === 'ws' && this._wsClient) {
+            const idempotencyKey = `vsc-setup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            this._wsClient.sendRpc('chat.send', {
+                sessionKey,
+                message,
+                deliver: false,
+                idempotencyKey,
+            }).catch(err => {
+                console.warn('[Gateway] fire-and-forget send failed:', err);
+            });
+        }
+    }
+
+    /**
+     * 发送聊天消息（fire-and-forget），返回 idempotencyKey 作为 runId 追踪
+     * 对齐 webchat: 不等 AI 回复，通过 chat 事件监听 final
+     */
+    public async sendChat(sessionKey: string, message: string): Promise<string | null> {
+        if (this._mode === 'ws') {
+            try {
+                if (!this._wsClient) {
+                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
+                    await this._wsClient.connect();
+                }
+                const idempotencyKey = `vsc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                this._activeSessionKey = sessionKey;
+                await this._wsClient.sendRpc('chat.send', {
+                    sessionKey,
+                    message,
+                    deliver: false,
+                    idempotencyKey,
+                });
+                return idempotencyKey;
+            } catch (err) {
+                this._activeSessionKey = null;
+                throw err;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 监听 chat 事件
+     */
+    public onChatEvent(handler: (payload: any) => void): void {
+        if (this._wsClient) {
+            this._wsClient.on('chat', handler);
+        }
+    }
+
+    /**
+     * 移除 chat 事件监听
+     */
+    public offChatEvent(handler: (payload: any) => void): void {
+        if (this._wsClient) {
+            this._wsClient.off('chat', handler);
+        }
+    }
+
+    /**
      * 发送消息并获取回复
      */
     public async sendMessage(
-        sessionId: string,
+        sessionKey: string,
         message: string,
         onStream?: StreamCallback
     ): Promise<Message> {
@@ -273,9 +336,9 @@ export class GatewayClient {
                 }
 
                 // 追踪当前运行的 session（用于 abort）
-                this._activeSessionKey = sessionId;
+                this._activeSessionKey = sessionKey;
 
-                const result = await this._wsClient.sendMessage(sessionId, message, {
+                const result = await this._wsClient.sendMessage(sessionKey, message, {
                     stream: !!onStream,
                     onStream: onStream ? (text) => onStream(text, false) : undefined
                 });
@@ -313,7 +376,7 @@ export class GatewayClient {
             const args = [
                 'agent',
                 '--message', message,
-                '--session-id', sessionId,
+                '--session-id', sessionKey,
                 '--json',
                 '--timeout', '300'
             ];
@@ -444,7 +507,7 @@ export class GatewayClient {
     /**
      * 获取会话历史
      */
-    public async getHistory(sessionId: string, limit?: number): Promise<Message[]> {
+    public async getHistory(sessionKey: string, limit?: number): Promise<Message[]> {
         // 优先使用 WebSocket
         if (this._mode === 'ws') {
             try {
@@ -454,7 +517,7 @@ export class GatewayClient {
                 }
                 
                 // WebSocket 返回完整消息（包括 toolCall）
-                const messages = await this._wsClient.getHistory(sessionId, limit);
+                const messages = await this._wsClient.getHistory(sessionKey, limit);
                 // 确保 timestamp 存在
                 return messages.map(m => ({
                     ...m,
@@ -471,7 +534,7 @@ export class GatewayClient {
         }
         
         // CLI 模式（回退方案）
-        return this.getMessages(sessionId);
+        return this.getMessages(sessionKey);
     }
 
     /**
@@ -528,11 +591,11 @@ export class GatewayClient {
     /**
      * 获取会话消息历史
      */
-    public async getMessages(sessionId: string): Promise<Message[]> {
+    public async getMessages(sessionKey: string): Promise<Message[]> {
         return new Promise((resolve, reject) => {
             const spawnCmd = this._getSpawnCommand([
                 'sessions', 'history',
-                '--session', sessionId,
+                '--session', sessionKey,
                 '--json'
             ]);
             const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
@@ -634,6 +697,21 @@ export class GatewayClient {
     }
 
     /**
+     * 设置会话 verbose level（控制工具事件推送）
+     * 需要 "compact" 或 "full" 才能收到实时工具事件
+     */
+    public async setSessionVerbose(sessionKey: string, level: string): Promise<void> {
+        if (this._mode === 'ws' && this._wsClient) {
+            try {
+                await this._wsClient.patchSession(sessionKey, { verboseLevel: level });
+                console.log(`[Gateway] 会话 ${sessionKey} verbose 已设置为 ${level}`);
+            } catch (err) {
+                console.warn('[Gateway] 设置 verbose level 失败:', err);
+            }
+        }
+    }
+
+    /**
      * 获取可用模型列表（从配置文件读取）
      */
     public async getModels(): Promise<{ models: ModelInfo[], currentModel: string }> {
@@ -704,7 +782,7 @@ export class GatewayClient {
     /**
      * 设置会话模型（会话级覆盖）
      */
-    public async setSessionModel(sessionId: string, model: string): Promise<void> {
+    public async setSessionModel(sessionKey: string, model: string): Promise<void> {
         // 通过 chat.send 发送 /model 命令切换模型
         // 注意：sessions.patch 只写 session store 的 modelOverride，
         // 但 dispatchInboundMessage 内部的 agent context 不会读取该 override，
@@ -712,8 +790,8 @@ export class GatewayClient {
         if (this._mode === 'ws' && this._wsClient) {
             try {
                 const modelCmd = (!model || model === 'default') ? '/model default' : `/model ${model}`;
-                await this._wsClient.sendMessage(sessionId, modelCmd);
-                console.log(`OpenClaw: 会话 ${sessionId} 模型已通过 /model 命令设置为 ${model || '默认'}`);
+                await this._wsClient.sendMessage(sessionKey, modelCmd);
+                console.log(`OpenClaw: 会话 ${sessionKey} 模型已通过 /model 命令设置为 ${model || '默认'}`);
                 return;
             } catch (err) {
                 if (!this._isCliFallbackEnabled()) {
@@ -754,27 +832,26 @@ export class GatewayClient {
 
     /**
      * 设置会话 thinking level
-     * 通过 chat.send 发送 /think 命令
+     * 通过 sessions.patch 设置 thinkingLevel
      */
-    public async setSessionThinking(sessionId: string, level: string): Promise<void> {
+    public async setSessionThinking(sessionKey: string, level: string): Promise<void> {
         if (this._mode === 'ws' && this._wsClient) {
             try {
-                const thinkCmd = `/think ${level}`;
-                await this._wsClient.sendMessage(sessionId, thinkCmd);
-                console.log(`OpenClaw: 会话 ${sessionId} thinking 已设置为 ${level}`);
+                await this._wsClient.patchSession(sessionKey, { thinkingLevel: level });
+                console.log(`OpenClaw: 会话 ${sessionKey} thinking 已设置为 ${level}`);
                 return;
             } catch (err) {
                 if (!this._isCliFallbackEnabled()) {
-                    console.error('[Gateway] WebSocket /think command failed:', err);
+                    console.error('[Gateway] WebSocket sessions.patch failed:', err);
                     throw new Error(`思考深度设置失败: ${err instanceof Error ? err.message : err}`);
                 }
-                console.warn('[Gateway] WebSocket /think command failed, falling back to CLI:', err);
+                console.warn('[Gateway] WebSocket sessions.patch failed, falling back to CLI:', err);
             }
         }
 
         // CLI 兜底：通过 agent 命令发送 /think
         return new Promise((resolve) => {
-            const args = ['agent', '-m', `/think ${level}`, '--session-id', sessionId];
+            const args = ['agent', '-m', `/think ${level}`, '--session-id', sessionKey];
             const spawnCmd = this._getSpawnCommand(args);
             const proc = spawn(spawnCmd.cmd, spawnCmd.args, {
                 env: this._getSpawnEnv()
@@ -799,14 +876,14 @@ export class GatewayClient {
      * 获取会话的当前 thinking level
      * 通过 sessions.list 获取
      */
-    public async getSessionThinkingLevel(sessionId: string): Promise<string> {
+    public async getSessionThinkingLevel(sessionKey: string): Promise<string> {
         if (this._mode === 'ws' && this._wsClient) {
             try {
                 const sessions = await this._wsClient.getSessions();
                 // 匹配 session key（可能带 agent:main: 前缀）
                 const session = sessions.find((s: any) => {
                     const key = s.key || '';
-                    return key === sessionId || key.endsWith(':' + sessionId);
+                    return key === sessionKey || key.endsWith(':' + sessionKey);
                 });
                 if (session && typeof session.thinkingLevel === 'string') {
                     return session.thinkingLevel;
@@ -815,8 +892,8 @@ export class GatewayClient {
                 console.warn('[Gateway] Failed to get session thinking level:', err);
             }
         }
-        // 默认返回 medium
-        return 'medium';
+        // 默认返回 low
+        return 'low';
     }
 
     /**
@@ -849,6 +926,12 @@ export class GatewayClient {
 
     private async _deleteSessionHTTP(sessionKey: string): Promise<void> {
         const http = require('http');
+        const url = require('url');
+
+        // 从 _baseUrl 解析主机名和端口
+        const parsed = new URL(this._baseUrl);
+        const hostname = parsed.hostname || 'localhost';
+        const port = parseInt(parsed.port) || 18789;
 
         return new Promise((resolve) => {
             const postData = JSON.stringify({
@@ -862,8 +945,8 @@ export class GatewayClient {
             });
 
             const options = {
-                hostname: '127.0.0.1',
-                port: 18789,
+                hostname,
+                port,
                 path: '/api/rpc',
                 method: 'POST',
                 headers: {

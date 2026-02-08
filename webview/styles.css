@@ -220,37 +220,72 @@ body {
 }
 
 /* Tool call */
-.tool-call {
-    font-size: var(--font-size-small);
-    padding: 4px 8px;
-    margin: 4px 0;
-    background: var(--vscode-textBlockQuote-background);
-    border-radius: 4px;
-    border-left: 2px solid var(--vscode-textLink-foreground);
-    font-family: var(--vscode-editor-font-family, monospace);
-    opacity: 0.8;
+/* Tool cards - horizontal scrolling row */
+.tool-cards-row {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
 
-.tool-call-header {
-    cursor: pointer;
+.tool-cards-row::-webkit-scrollbar {
+    display: none;
+}
+
+.tool-card {
+    flex-shrink: 0;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+    display: grid;
+    gap: 4px;
+    max-width: 240px;
+    min-width: 120px;
+    transition: border-color 0.15s ease-out, background 0.15s ease-out;
+}
+
+.tool-card:hover {
+    border-color: var(--vscode-focusBorder);
+}
+
+.tool-card-header {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 1.2;
 }
 
-.tool-call-content {
-    display: none;
-    margin-top: 4px;
-    padding-top: 4px;
-    border-top: 1px solid var(--vscode-panel-border);
-    white-space: pre-wrap;
-    font-size: 10px;
-    max-height: 100px;
-    overflow-y: auto;
+.tool-card-icon {
+    flex-shrink: 0;
+    font-size: 13px;
 }
 
-.tool-call.expanded .tool-call-content {
-    display: block;
+.tool-card-label {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.tool-card-check {
+    margin-left: auto;
+    color: var(--vscode-testing-iconPassed, #4caf50);
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.tool-card-detail {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Markdown styles */
@@ -534,10 +569,25 @@ body {
     gap: 6px;
     flex: 1;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
 }
 
-.toolbar-select {
+/* Custom dropdown */
+.toolbar-dropdown {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.toolbar-dropdown.model-dropdown {
+    flex: 1;
+    min-width: 60px;
+    max-width: 200px;
+}
+
+.dropdown-trigger {
+    display: flex;
+    align-items: center;
+    gap: 3px;
     padding: 4px 8px;
     font-size: var(--font-size-small);
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
@@ -545,25 +595,98 @@ body {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     cursor: pointer;
-    min-width: 0;
+    white-space: nowrap;
     max-width: 100%;
 }
 
-#modeSelect {
-    flex-shrink: 0;
-    width: auto;
+.model-dropdown .dropdown-trigger {
+    width: 100%;
 }
 
-#modelSelect {
-    flex: 1;
-    min-width: 80px;
-    max-width: 200px;
+.dropdown-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.dropdown-arrow {
+    font-size: 10px;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.dropdown-trigger:hover {
+    border-color: var(--vscode-focusBorder);
+}
+
+.dropdown-trigger:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.dropdown-popup {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    min-width: 140px;
+    max-width: 280px;
+    background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+    border-radius: 6px;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    overflow: hidden;
+}
+
+.dropdown-popup.open {
+    display: block;
+}
+
+.dropdown-title {
+    padding: 8px 12px 6px;
+    font-size: var(--font-size-small);
+    color: var(--vscode-descriptionForeground);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    user-select: none;
+}
+
+.dropdown-options {
+    padding: 4px 0;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.dropdown-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    font-size: var(--font-size-small);
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.toolbar-select:focus {
-    outline: none;
-    border-color: var(--vscode-focusBorder);
+.dropdown-option:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.dropdown-option.active {
+    color: var(--vscode-textLink-foreground);
+}
+
+.dropdown-option .check {
+    margin-left: 12px;
+    flex-shrink: 0;
+    opacity: 0;
+}
+
+.dropdown-option.active .check {
+    opacity: 1;
 }
 
 /* Send button - three states */
@@ -1378,4 +1501,37 @@ body {
         opacity: 0;
         transform: translateY(-10px);
     }
+}
+
+/* System Notification (Toast) */
+.system-notification {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: var(--vscode-notifications-background, #333333);
+    color: var(--vscode-notifications-foreground, #cccccc);
+    padding: 8px 16px;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    opacity: 0;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    font-size: var(--font-size-small);
+    border: 1px solid var(--vscode-notifications-border, transparent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.system-notification::before {
+    content: "✓";
+    color: var(--vscode-charts-green, #4caf50);
+    font-weight: bold;
+}
+
+.system-notification.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
 }

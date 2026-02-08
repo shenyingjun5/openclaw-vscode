@@ -9,63 +9,62 @@ AI coding assistant for VS Code, powered by OpenClaw.
 - 🎯 **Session-level Model Switching** - Per-session model override, multi-window independent
 - 🔌 **Real-time Connection Status** - Live WebSocket connection indicator
 - 📨 **Message Queue** - Send messages while AI is responding, auto-queued
-- 🔧 **Tool Call Display** - Real-time tool invocation feedback
+- 🔧 **Tool Call Display** - Real-time tool invocation feedback via auto-refresh polling
 - 💡 **Friendly Error Messages** - Smart error classification with actionable suggestions
 - 🎯 **Skills & Workflows** - Auto-detect and use project skills
 - 📎 **File & Image Attachments** - Attach code files and images to your messages
 - 🖼️ **Image Paste** - Paste images directly from clipboard
-- 🔄 **Multi-window Support** - Up to 5 parallel chat sessions
+- 🔄 **Multi-window Support** - Up to 5 parallel chat sessions with independent history
 - 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
 - 🪟 **Windows Support** - Enhanced Windows compatibility (95% coverage)
 
-## What's New in v0.2.2
+## What's New in v0.2.5
 
-### 🎯 Session-level Model Switching
+### 🧠 Thinking Depth Control
 
-Switch models per-session without affecting other windows or the global config.
+Fine-tune AI reasoning depth per session:
 
-- **Per-session override** - Each VS Code window can use a different model
-- **Instant effect** - Switch takes effect immediately, no restart needed
-- **Persistent** - Model selection saved in session store, survives restarts
-- **Default model config** - Configure default model for new sessions in settings
+- **Think selector** — New dropdown in the bottom toolbar: off/minimal/low/medium/high/xhigh
+- **Per-session** — Each chat session remembers its own thinking level
+- **Model-aware** — Resets to medium when switching models; xhigh only shown for supported models
+- **Bilingual** — Labels auto-switch between Chinese and English
 
-### 🌐 Settings i18n
+### 🪟 Windows WSL Support
 
-- All settings, commands, and descriptions support Chinese and English
-- Auto-switches based on VS Code display language
-- Uses official `package.nls.json` mechanism
+Use OpenClaw installed in WSL directly from Windows VS Code:
 
-### 📨 Message Queue System
+- **Zero config** — Default `localhost:18789` auto-maps to WSL
+- **Setup guide** — Just bind Gateway to `0.0.0.0` in WSL, and you're done
 
-- Send messages while AI is still responding — they queue automatically
-- Visual queue display above input box
-- Individual queue items can be removed
-- Auto-processes next message when AI finishes
+### 🏗️ Chat State Machine Overhaul (Aligned with Webchat)
 
-### 🔌 Connection Status Indicator
+Completely rearchitected the message sending and reply tracking to match OpenClaw's official webchat implementation. This fixes premature completion issues where the AI appeared to finish while still processing.
 
-- Live connection state in title bar (🟢 connected / 🔴 disconnected / 🟡 connecting)
-- WebSocket event-driven, zero-polling
-- Pulse animation on disconnect
+- **Fire-and-forget messaging** — `chat.send` RPC returns immediately, no longer blocks waiting for AI reply
+- **RunId-based tracking** — Each message gets a unique `runId` (idempotencyKey); the send button stays disabled until the matching `chat final` event arrives via WebSocket
+- **Event-driven completion** — Reply completion is determined by Gateway's `chat` event (state=final/error/aborted), not by Promise resolution
+- **Robust busy state** — `isBusy = isSending || !!chatRunId`, matching webchat's `Qr` function exactly
 
-### 🔧 Tool Call Streaming
+### 🔄 Smart Auto-Refresh
 
-- Real-time display of tool invocations (exec, read, write, etc.)
-- Click to expand full parameters
-- Smart summary (command, path, etc.)
+Rebuilt the auto-refresh system for reliability during AI tool calls:
 
-### 💡 Friendly Error Handling
+- **`setInterval`-based** — Fixed 2-second interval, no chain-breaking issues
+- **Only during AI reply** — Auto-refresh activates when `chatRunId` is set (waiting for AI), stops when reply completes
+- **Crash-proof history loading** — `_loadHistory` wrapped in try-catch so a single failure can't permanently disable auto-refresh
+- **No flicker** — Content fingerprint (`lastHistoryHash`) skips DOM rebuild when history hasn't changed
 
-- Errors appear as styled chat messages (info/warning/error/stop)
-- 11 error types recognized (connection, token, model, auth, etc.)
-- Actionable suggestions for each error type
-- "Stopped" shows friendly message (auto-dismiss in 2s)
+### 🔧 Context Setup No Longer Blocks
 
-### 🔄 Auto Refresh
+Fixed a critical bug where `sendContextSetup` (language/workspace setup) could block all subsequent messages for up to 10 minutes:
 
-- Manual refresh with spin animation
-- Configurable auto-refresh interval (default 1000ms, 0 to disable)
-- Smart WebSocket reconnect on refresh
+- **Root cause** — `sendMessage()` awaited the AI reply to a "[No reply needed]" message; Gateway never sent `final` → 600s timeout
+- **Fix** — Context setup now uses fire-and-forget (`sendRpc('chat.send')`) with `deliver: false`
+
+### 📋 Independent Session History
+
+- Each VSCode window's `sessionKey` is prefixed with `agent:main:` to match Gateway's internal key format
+- Fixes issue where all windows shared the same chat history
 
 ## What's New in v0.2.0
 
@@ -115,7 +114,7 @@ AI can return structured file changes that you preview and apply visually:
 ## Requirements
 
 - [OpenClaw](https://github.com/openclaw/openclaw) must be installed and running
-- Gateway should be accessible at `http://127.0.0.1:18789`
+- Gateway should be accessible at `http://localhost:18789` (default)
 
 ### Windows Users
 
@@ -132,6 +131,52 @@ If you encounter "Cannot find openclaw" error:
      - npm: `C:\Users\YourName\AppData\Roaming\npm\openclaw.cmd`
      - scoop: `C:\Users\YourName\scoop\shims\openclaw.cmd`
      - chocolatey: `C:\ProgramData\chocolatey\bin\openclaw.exe`
+
+### Using OpenClaw in WSL (Windows Subsystem for Linux)
+
+If you installed OpenClaw inside WSL, you need to make Gateway accessible from Windows:
+
+#### Step 1: Configure Gateway to bind to all interfaces
+
+In WSL, modify Gateway to listen on `0.0.0.0` instead of `127.0.0.1`:
+
+```bash
+# Stop current Gateway
+openclaw gateway stop
+
+# Edit Gateway config
+nano ~/.openclaw/openclaw.json
+```
+
+Find the `gateway` section and change the host:
+
+```json
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18789
+  }
+}
+```
+
+Or start Gateway with command-line flag:
+
+```bash
+openclaw gateway start --host 0.0.0.0
+```
+
+#### Step 2: Use the extension in Windows
+
+The extension is **pre-configured** to work with WSL out-of-the-box:
+- Default Gateway URL: `http://localhost:18789` (automatically maps to WSL)
+- No additional configuration needed in Windows VS Code
+- WebSocket connection works seamlessly
+
+**How it works:**
+- Windows `localhost` is automatically forwarded to WSL's `127.0.0.1` by WSL 2 networking
+- The extension connects to `http://localhost:18789` which reaches your WSL Gateway
+
+That's it! Open VS Code in Windows, install the extension, and start chatting.
 
 ## Usage
 
@@ -216,14 +261,14 @@ Open VS Code Settings (`Ctrl+,`) and search for "OpenClaw":
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `openclaw.gatewayUrl` | `http://127.0.0.1:18789` | Gateway URL |
+| `openclaw.gatewayUrl` | `http://localhost:18789` | Gateway URL |
 | `openclaw.gatewayToken` | | Gateway authentication token |
 | `openclaw.openclawPath` | (auto-detect) | Path to openclaw binary |
 | `openclaw.defaultSession` | `main` | Default session ID |
 | `openclaw.defaultModel` | | Default model for new sessions |
 | `openclaw.planMode` | `false` | Default to Plan Mode |
 | `openclaw.aiOutputLanguage` | `auto` | AI response language |
-| `openclaw.autoRefreshInterval` | `1000` | Auto-refresh interval (ms, 0 to disable) |
+| `openclaw.autoRefreshInterval` | `2000` | Auto-refresh interval (ms, 0 to disable) |
 | `openclaw.enableCliFallback` | `true` | Enable CLI fallback when WebSocket fails |
 
 ## Development
@@ -299,63 +344,62 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 🎯 **会话级模型切换** - 每个会话独立模型，多窗口互不干扰
 - 🔌 **实时连接状态** - WebSocket 连接状态指示器
 - 📨 **消息队列** - AI 回复时可继续发送，自动排队
-- 🔧 **工具调用展示** - 实时工具调用反馈
+- 🔧 **工具调用展示** - 通过自动刷新轮询实时展示工具调用
 - 💡 **友好错误提示** - 智能分类错误并提供解决建议
 - 🎯 **技能与工作流集成** - 自动检测并使用项目技能
 - 📎 **文件和图片附件** - 附加代码文件和图片
 - 🖼️ **图片粘贴** - 从剪贴板直接粘贴图片
-- 🔄 **多窗口支持** - 最多 5 个并行聊天会话
+- 🔄 **多窗口支持** - 最多 5 个并行聊天会话，各自独立历史
 - 🌍 **多语言** - 界面和 AI 输出完整国际化（zh-CN、en、ja、ko）
 - 🪟 **Windows 支持** - 95% 平台兼容性
 
-## v0.2.2 新特性
+## v0.2.5 新特性
 
-### 🎯 会话级模型切换
+### 🧠 思考深度控制
 
-按会话切换模型，不影响其他窗口或全局配置。
+按会话调节 AI 推理深度：
 
-- **会话级覆盖** - 每个 VS Code 窗口可使用不同模型
-- **即时生效** - 切换后立即使用新模型，无需重启
-- **持久化** - 模型选择保存在会话存储中，重启后保持
-- **默认模型配置** - 在设置中为新会话配置默认模型
+- **Think 选择器** — 底部工具栏新增下拉框：off/minimal/low/medium/high/xhigh
+- **会话级控制** — 每个聊天会话独立记忆思考深度
+- **模型联动** — 切换模型后自动重置为 medium；xhigh 仅在支持的模型上显示
+- **双语标签** — 根据 VS Code 语言自动切换中英文
 
-### 🌐 设置界面国际化
+### 🪟 Windows WSL 支持
 
-- 所有设置项、命令、描述支持中英文
-- 根据 VS Code 显示语言自动切换
-- 使用官方 `package.nls.json` 机制
+在 WSL 中安装 OpenClaw，Windows VS Code 直接使用：
 
-### 📨 消息队列系统
+- **零配置** — 默认 `localhost:18789` 自动映射到 WSL
+- **配置引导** — 只需在 WSL 中将 Gateway 绑定到 `0.0.0.0` 即可
 
-- AI 回复时可继续发送消息，自动排队处理
-- 队列可视化显示在输入框上方
-- 每个队列项可单独删除
-- AI 完成后自动处理下一条
+### 🏗️ 聊天状态机重构（对齐 Webchat）
 
-### 🔌 连接状态指示器
+完全重构消息发送和回复追踪逻辑，对齐 OpenClaw 官方 webchat 实现。修复了 AI 实际仍在处理但界面显示已完成的过早结束问题。
 
-- 顶栏实时显示连接状态（🟢 已连接 / 🔴 未连接 / 🟡 连接中）
-- WebSocket 事件驱动，零轮询
-- 断线时脉冲动画提醒
+- **Fire-and-forget 发送** — `chat.send` RPC 立即返回，不再阻塞等待 AI 回复
+- **RunId 追踪** — 每条消息生成唯一 `runId`（idempotencyKey），发送按钮保持禁用直到收到匹配的 `chat final` 事件
+- **事件驱动完成** — 回复完成由 Gateway 的 `chat` 事件（state=final/error/aborted）决定，而非 Promise 解析
+- **稳健的忙碌状态** — `isBusy = isSending || !!chatRunId`，完全对齐 webchat 的 `Qr` 函数
 
-### 🔧 工具调用流式显示
+### 🔄 智能自动刷新
 
-- AI 调用工具时实时显示（exec、read、write 等）
-- 点击展开查看完整参数
-- 智能摘要（命令、路径等关键信息）
+重建自动刷新系统，确保 AI 工具调用期间的可靠性：
 
-### 💡 友好错误处理
+- **基于 `setInterval`** — 固定 2 秒间隔，不会出现链条断裂问题
+- **仅在等待回复时刷新** — `chatRunId` 非空时启动自动刷新，回复完成后停止
+- **历史加载防崩溃** — `_loadHistory` 包裹 try-catch，单次失败不会永久禁用自动刷新
+- **无闪烁** — 内容指纹（`lastHistoryHash`）在历史未变化时跳过 DOM 重建
 
-- 错误作为带样式的聊天消息展示（信息/警告/错误/停止）
-- 11 种错误类型智能识别（连接、Token、模型、权限等）
-- 每种错误提供可操作的解决建议
-- "已停止" 显示友好提示（2 秒自动消失）
+### 🔧 上下文设置不再阻塞
 
-### 🔄 自动刷新
+修复了一个关键 Bug：`sendContextSetup`（语言/工作区设置）可能阻塞后续所有消息长达 10 分钟：
 
-- 手动刷新带旋转动画
-- 可配置自动刷新间隔（默认 1000ms，0 禁用）
-- 刷新时自动尝试重连 WebSocket
+- **根本原因** — `sendMessage()` 等待 AI 回复 "[No reply needed]" 消息，Gateway 不发 `final` → 600 秒超时
+- **修复方案** — 上下文设置改用 fire-and-forget（`sendRpc('chat.send')`），加 `deliver: false`
+
+### 📋 独立会话历史
+
+- 每个 VSCode 窗口的 `sessionKey` 加上 `agent:main:` 前缀，匹配 Gateway 内部 key 格式
+- 修复了所有窗口共享同一聊天历史的问题
 
 ## v0.2.0 新特性
 
@@ -405,7 +449,7 @@ AI 可以返回结构化的文件变更，支持可视化预览和应用：
 ## 前置要求
 
 - 必须安装并运行 [OpenClaw](https://github.com/openclaw/openclaw)
-- Gateway 需要在 `http://127.0.0.1:18789` 可访问
+- Gateway 需要在 `http://localhost:18789` 可访问（默认）
 
 ### Windows 用户
 
@@ -422,6 +466,52 @@ AI 可以返回结构化的文件变更，支持可视化预览和应用：
      - npm: `C:\Users\YourName\AppData\Roaming\npm\openclaw.cmd`
      - scoop: `C:\Users\YourName\scoop\shims\openclaw.cmd`
      - chocolatey: `C:\ProgramData\chocolatey\bin\openclaw.exe`
+
+### 在 WSL（Windows Linux 子系统）中使用 OpenClaw
+
+如果您在 WSL 中安装了 OpenClaw，需要让 Gateway 能从 Windows 访问：
+
+#### 步骤 1：配置 Gateway 绑定所有接口
+
+在 WSL 中，修改 Gateway 监听 `0.0.0.0` 而非 `127.0.0.1`：
+
+```bash
+# 停止当前 Gateway
+openclaw gateway stop
+
+# 编辑 Gateway 配置
+nano ~/.openclaw/openclaw.json
+```
+
+找到 `gateway` 部分，修改 host：
+
+```json
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18789
+  }
+}
+```
+
+或使用命令行参数启动：
+
+```bash
+openclaw gateway start --host 0.0.0.0
+```
+
+#### 步骤 2：在 Windows 中使用插件
+
+插件已**预配置**开箱即用 WSL：
+- 默认 Gateway URL：`http://localhost:18789`（自动映射到 WSL）
+- Windows VS Code 中无需额外配置
+- WebSocket 连接自动工作
+
+**工作原理：**
+- Windows 的 `localhost` 会通过 WSL 2 网络桥接自动转发到 WSL 的 `127.0.0.1`
+- 插件连接到 `http://localhost:18789` 即可访问 WSL 内的 Gateway
+
+完成！在 Windows 中打开 VS Code，安装插件，即可开始对话。
 
 ## 使用方法
 
@@ -506,14 +596,14 @@ project/
 
 | 设置项 | 默认值 | 描述 |
 |--------|--------|------|
-| `openclaw.gatewayUrl` | `http://127.0.0.1:18789` | Gateway 地址 |
+| `openclaw.gatewayUrl` | `http://localhost:18789` | Gateway 地址 |
 | `openclaw.gatewayToken` | | Gateway 认证 Token |
 | `openclaw.openclawPath` | (自动检测) | openclaw 二进制文件路径 |
 | `openclaw.defaultSession` | `main` | 默认会话 ID |
 | `openclaw.defaultModel` | | 新会话默认模型 |
 | `openclaw.planMode` | `false` | 默认使用计划模式 |
 | `openclaw.aiOutputLanguage` | `auto` | AI 输出语言 |
-| `openclaw.autoRefreshInterval` | `1000` | 自动刷新间隔（ms，0 禁用） |
+| `openclaw.autoRefreshInterval` | `2000` | 自动刷新间隔（ms，0 禁用） |
 | `openclaw.enableCliFallback` | `true` | WebSocket 失败时启用 CLI 兜底 |
 
 ## 开发

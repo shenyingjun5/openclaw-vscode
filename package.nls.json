@@ -4,8 +4,6 @@
   "config.title": "OpenClaw",
   "config.gatewayUrl.description": "OpenClaw Gateway URL",
   "config.openclawPath.description": "Path to openclaw binary (auto-detected if empty). Example: C:\\\\Users\\\\you\\\\AppData\\\\Roaming\\\\npm\\\\openclaw.cmd",
-  "config.defaultSession.description": "Default session ID",
-  "config.planMode.description": "Enable Plan Mode (AI creates plan before executing)",
   "config.aiOutputLanguage.description": "Language for AI responses",
   "config.aiOutputLanguage.enum.auto": "Follow system language",
   "config.aiOutputLanguage.enum.zh-CN": "简体中文 (Simplified Chinese)",
