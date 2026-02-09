@@ -169,6 +169,24 @@
         </div>
     </div>
 
+    <!-- 连接状态弹窗 -->
+    <div class="status-popup-overlay" id="statusPopupOverlay">
+        <div class="status-popup" id="statusPopup">
+            <div class="status-popup-header" id="statusPopupHeader"></div>
+            <div class="status-popup-desc" id="statusPopupDesc"></div>
+            <div class="status-popup-separator"></div>
+            <div class="status-popup-actions" id="statusPopupActions"></div>
+        </div>
+    </div>
+
+    <!-- 拖放蒙层 -->
+    <div class="drop-overlay" id="dropOverlay">
+        <div class="drop-overlay-content">
+            <span class="drop-overlay-icon">📎</span>
+            <span class="drop-overlay-text" data-i18n="dragDropHint"></span>
+        </div>
+    </div>
+
     <script src="${changeCardScriptUri}"></script>
     <script src="${scriptUri}"></script>
 </body>

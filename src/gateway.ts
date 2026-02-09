@@ -35,6 +35,9 @@ export class GatewayClient {
     private _activeSessionKey: string | null = null;
     private _activeRunId: string | null = null;
     private _gatewayToken?: string;
+    private _lastError: string = '';
+    private _connectedUrl: string = '';
+    private _pendingChatHandlers: Set<(payload: any) => void> = new Set();
 
     constructor(baseUrl: string, customPath?: string) {
         this._baseUrl = baseUrl;
@@ -45,9 +48,42 @@ export class GatewayClient {
     }
 
     /**
+     * 获取最后一次连接错误信息
+     */
+    public getLastError(): string {
+        return this._lastError;
+    }
+
+    /**
+     * 获取当前连接的 Gateway 地址
+     */
+    public getConnectedUrl(): string {
+        return this._connectedUrl;
+    }
+
+    /**
+     * 获取当前连接模式
+     */
+    public getMode(): 'cli' | 'ws' {
+        return this._mode;
+    }
+
+    /**
      * 从 OpenClaw 配置文件读取 Gateway auth token
+     * 优先级：VSCode 设置 > 配置文件
      */
     private _readGatewayToken(): string | undefined {
+        // ① 优先读 VSCode 设置中的 token
+        try {
+            const configToken = vscode.workspace.getConfiguration('openclaw').get<string>('gatewayToken');
+            if (configToken && configToken.trim()) {
+                return configToken.trim();
+            }
+        } catch (err) {
+            console.warn('[Gateway] Failed to read token from settings:', err);
+        }
+
+        // ② 回退：从配置文件读取
         try {
             const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
             if (fs.existsSync(jsonConfigPath)) {
@@ -199,43 +235,108 @@ export class GatewayClient {
     public async connect(): Promise<void> {
         // 先尝试 WebSocket 模式
         if (this._mode === 'ws') {
-            try {
-                if (!this._wsClient) {
-                    this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
-                }
-                await this._wsClient.connect();
-                this._connected = true;
-                this._notifyConnectionChange(true);
-                return;
-            } catch (err) {
-                if (!this._isCliFallbackEnabled()) {
-                    this._connected = false;
-                    this._notifyConnectionChange(false);
-                    throw new Error(`WebSocket 连接失败: ${err instanceof Error ? err.message : err}`);
-                }
-                console.warn('[Gateway] WebSocket connection failed, trying CLI mode:', err);
-                // WebSocket 失败，切换到 CLI 模式
-                this._mode = 'cli';
-                this._wsClient = null;
+            // 尝试连接，如果 localhost 失败则回退 127.0.0.1
+            const urls = [this._baseUrl];
+            if (this._baseUrl.includes('localhost')) {
+                urls.push(this._baseUrl.replace('localhost', '127.0.0.1'));
             }
+
+            let lastErr: Error | null = null;
+            for (const url of urls) {
+                try {
+                    this._wsClient = new GatewayWSClient(url, this._gatewayToken);
+                    await this._wsClient.connect();
+                    this._reattachChatHandlers();
+                    this._connected = true;
+                    this._connectedUrl = url;
+                    this._lastError = '';
+                    this._notifyConnectionChange(true);
+                    return;
+                } catch (err) {
+                    lastErr = err instanceof Error ? err : new Error(String(err));
+                    console.warn(`[Gateway] WebSocket connection failed for ${url}:`, err);
+                    this._wsClient = null;
+                }
+            }
+
+            // 所有 URL 都失败了
+            if (!this._isCliFallbackEnabled()) {
+                this._connected = false;
+                this._connectedUrl = '';
+                this._lastError = this._classifyError(lastErr);
+                this._notifyConnectionChange(false);
+                throw new Error(`WebSocket 连接失败: ${lastErr?.message || '未知错误'}`);
+            }
+
+            console.warn('[Gateway] All WebSocket URLs failed, trying CLI mode');
+            this._mode = 'cli';
+            this._wsClient = null;
         }
         
         // CLI 模式：检查可用性
         try {
             await this._checkOpenclawAvailable();
             this._connected = true;
+            this._connectedUrl = this._baseUrl;
+            this._lastError = '';
             this._notifyConnectionChange(true);
         } catch (err) {
             this._connected = false;
+            this._connectedUrl = '';
+            this._lastError = this._classifyError(err instanceof Error ? err : new Error(String(err)));
             this._notifyConnectionChange(false);
             throw err;
         }
     }
 
+    /**
+     * 将错误分类为用户友好的中文提示
+     */
+    private _classifyError(err: Error | null): string {
+        if (!err) { return '未知错误'; }
+        const msg = err.message || '';
+
+        if (msg.includes('ECONNREFUSED')) {
+            return `Gateway 未启动或地址错误 (${this._baseUrl})`;
+        }
+        if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo')) {
+            return `无法解析地址 (${this._baseUrl})`;
+        }
+        if (msg.includes('timeout') || msg.includes('Timeout')) {
+            return 'Gateway 连接超时，请确认服务是否正常运行';
+        }
+        if (msg.includes('auth') || msg.includes('token') || msg.includes('401') || msg.includes('forbidden')) {
+            return 'Token 认证失败，请在设置中检查 Gateway Token';
+        }
+        if (msg.includes('Connect failed')) {
+            return `Gateway 握手失败 (${this._baseUrl})`;
+        }
+        return msg;
+    }
+
     public disconnect(): void {
         this.stopGeneration();
         this._connected = false;
+        this._connectedUrl = '';
         this._notifyConnectionChange(false);
+    }
+
+    /**
+     * 重新加载 token 并重连
+     * 可选传入新的 baseUrl
+     */
+    public async reloadTokenAndReconnect(newBaseUrl?: string): Promise<void> {
+        if (newBaseUrl) {
+            this._baseUrl = newBaseUrl;
+        }
+        this._gatewayToken = this._readGatewayToken();
+        // 断开旧连接
+        if (this._wsClient) {
+            this._wsClient.disconnect();
+            this._wsClient = null;
+        }
+        this._mode = 'ws';
+        await this.connect();
     }
 
     public onConnectionChange(callback: ConnectionCallback): void {
@@ -277,14 +378,14 @@ export class GatewayClient {
      * 发送聊天消息（fire-and-forget），返回 idempotencyKey 作为 runId 追踪
      * 对齐 webchat: 不等 AI 回复，通过 chat 事件监听 final
      */
-    public async sendChat(sessionKey: string, message: string): Promise<string | null> {
+    public async sendChat(sessionKey: string, message: string, idempotencyKey: string): Promise<void> {
         if (this._mode === 'ws') {
             try {
                 if (!this._wsClient) {
                     this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
                     await this._wsClient.connect();
+                    this._reattachChatHandlers();
                 }
-                const idempotencyKey = `vsc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 this._activeSessionKey = sessionKey;
                 await this._wsClient.sendRpc('chat.send', {
                     sessionKey,
@@ -292,19 +393,18 @@ export class GatewayClient {
                     deliver: false,
                     idempotencyKey,
                 });
-                return idempotencyKey;
             } catch (err) {
                 this._activeSessionKey = null;
                 throw err;
             }
         }
-        return null;
     }
 
     /**
      * 监听 chat 事件
      */
     public onChatEvent(handler: (payload: any) => void): void {
+        this._pendingChatHandlers.add(handler);
         if (this._wsClient) {
             this._wsClient.on('chat', handler);
         }
@@ -314,8 +414,20 @@ export class GatewayClient {
      * 移除 chat 事件监听
      */
     public offChatEvent(handler: (payload: any) => void): void {
+        this._pendingChatHandlers.delete(handler);
         if (this._wsClient) {
             this._wsClient.off('chat', handler);
+        }
+    }
+
+    /**
+     * wsClient 创建后，将 pending 的 chat handlers 补挂上去
+     */
+    private _reattachChatHandlers(): void {
+        if (this._wsClient) {
+            for (const handler of this._pendingChatHandlers) {
+                this._wsClient.on('chat', handler);
+            }
         }
     }
 
@@ -333,6 +445,7 @@ export class GatewayClient {
                 if (!this._wsClient) {
                     this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
                     await this._wsClient.connect();
+                    this._reattachChatHandlers();
                 }
 
                 // 追踪当前运行的 session（用于 abort）
@@ -514,6 +627,7 @@ export class GatewayClient {
                 if (!this._wsClient) {
                     this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
                     await this._wsClient.connect();
+                    this._reattachChatHandlers();
                 }
                 
                 // WebSocket 返回完整消息（包括 toolCall）
@@ -547,6 +661,7 @@ export class GatewayClient {
                 if (!this._wsClient) {
                     this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
                     await this._wsClient.connect();
+                    this._reattachChatHandlers();
                 }
                 
                 return await this._wsClient.getSessions();
@@ -906,6 +1021,7 @@ export class GatewayClient {
                 if (!this._wsClient) {
                     this._wsClient = new GatewayWSClient(this._baseUrl, this._gatewayToken);
                     await this._wsClient.connect();
+                    this._reattachChatHandlers();
                 }
                 
                 await this._wsClient.deleteSession(sessionKey);

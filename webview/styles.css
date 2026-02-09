@@ -67,6 +67,7 @@ body {
     border-radius: 50%;
     transition: all 0.3s;
     flex-shrink: 0;
+    cursor: pointer;
 }
 
 .status-indicator.connected {
@@ -1624,4 +1625,119 @@ body {
 .system-notification.show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+}
+
+/* ========== Status Popup ========== */
+.status-popup-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900;
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.status-popup-overlay.show {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 50px;
+}
+
+.status-popup {
+    width: 180px;
+    background: var(--vscode-notifications-background, #333333);
+    border: 1px solid var(--vscode-panel-border, #2d2d2d);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    font-size: var(--font-size-base);
+}
+
+.status-popup-header {
+    padding: 10px 12px 4px;
+    font-weight: 600;
+    font-size: var(--font-size-base);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.status-popup-desc {
+    padding: 0 12px 8px;
+    font-size: var(--font-size-small);
+    color: var(--vscode-descriptionForeground, #999);
+    word-break: break-all;
+}
+
+.status-popup-separator {
+    height: 1px;
+    background: var(--vscode-panel-border, #2d2d2d);
+    margin: 0;
+}
+
+.status-popup-actions {
+    padding: 4px 0;
+}
+
+.status-popup-action {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    color: var(--vscode-foreground, #cccccc);
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
+}
+
+.status-popup-action:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+/* Drop overlay */
+.drop-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.drop-overlay.show {
+    display: flex;
+}
+
+.drop-overlay-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 32px 48px;
+    border: 2px dashed var(--vscode-focusBorder, #007acc);
+    border-radius: 12px;
+    background: var(--vscode-editor-background, #1e1e1e);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.drop-overlay-icon {
+    font-size: 32px;
+}
+
+.drop-overlay-text {
+    font-size: 14px;
+    color: var(--vscode-foreground, #cccccc);
+    font-weight: 500;
 }

@@ -14,10 +14,14 @@
   "config.autoRefreshInterval.markdownDescription": "Auto-refresh session history interval (milliseconds).\\n\\n- `0`: Disable auto-refresh\\n- `5000`: Refresh every 5 seconds\\n- `10000`: Refresh every 10 seconds (default)\\n- `30000`: Refresh every 30 seconds",
   "config.enableCliFallback.description": "Enable CLI command fallback when WebSocket fails (for debugging). When disabled, only WebSocket mode is used.",
   "config.planModePrompt.description": "Custom prompt for Plan Mode. Leave empty to use the built-in default. The ---- Plan Mode ---- markers are added automatically.",
+  "config.gatewayToken.description": "Gateway authentication token. Required for WSL or remote environments where the config file cannot be read automatically.",
+  "config.gatewayToken.markdownDescription": "Gateway authentication token.\n\nSet this when VSCode cannot read `~/.openclaw/openclaw.json` automatically (e.g. WSL on Windows).\n\nFind your token in `~/.openclaw/openclaw.json` → `gateway.auth.token`.",
   "command.openChatPanel.title": "Open Chat Panel",
   "command.sendSelection.title": "Send Selection to OpenClaw",
   "command.sendFile.title": "Send File to OpenClaw",
   "command.togglePlanMode.title": "Toggle Plan Mode",
   "command.newSession.title": "New Session",
-  "command.clearChat.title": "Clear Chat"
+  "command.clearChat.title": "Clear Chat",
+  "command.showConnectionStatus.title": "Show Connection Status",
+  "command.closeChat.title": "Close Chat"
 }

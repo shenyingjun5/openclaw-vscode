@@ -2,7 +2,7 @@
   "name": "openclaw",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
@@ -83,12 +83,31 @@
       {
         "command": "openclaw.clearChat",
         "title": "%command.clearChat.title%"
+      },
+      {
+        "command": "openclaw.showConnectionStatus",
+        "title": "%command.showConnectionStatus.title%"
+      },
+      {
+        "command": "openclaw.closeChat",
+        "title": "%command.closeChat.title%",
+        "icon": {
+          "light": "media/close-light.svg",
+          "dark": "media/close-dark.svg"
+        }
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "openclaw.openChatPanel",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "openclaw.closeChat",
+          "when": "view == openclaw.chatView",
           "group": "navigation"
         }
       ],
@@ -147,6 +166,12 @@
           "type": "boolean",
           "default": true,
           "description": "%config.enableCliFallback.description%"
+        },
+        "openclaw.gatewayToken": {
+          "type": "string",
+          "default": "",
+          "description": "%config.gatewayToken.description%",
+          "markdownDescription": "%config.gatewayToken.markdownDescription%"
         },
         "openclaw.planModePrompt": {
           "type": "string",

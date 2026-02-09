@@ -14,24 +14,36 @@ AI coding assistant for VS Code, powered by OpenClaw.
 - 🎯 **Skills & Workflows** - Auto-detect and use project skills
 - 📎 **File & Image Attachments** - Attach code files and images to your messages
 - 🖼️ **Image Paste** - Paste images directly from clipboard
+- 📁 **Drag & Drop Files** - Drag files from Explorer, file tree, or editor tabs
 - 🔄 **Multi-window Support** - Up to 5 parallel chat sessions with independent history
 - 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
-- 🪟 **Windows Support** - Enhanced Windows compatibility (95% coverage)
+- 🪟 **Windows & WSL Support** - Enhanced Windows/WSL compatibility with auto-fallback
 
-## What's New in v0.2.7
+## What's New in v0.2.8
 
-### 🤖 AI Avatar & Name Display
+### 📁 Drag & Drop File Support
 
-- **Avatar in chat** — AI avatar and name shown at the start of each assistant message group
-- **Auto-fetched** — Retrieved via `agent.identity.get` API on connection
-- **Multiple formats** — Supports URL images, emoji, and letter avatars (gradient circle)
+- **Full-window drop zone** — Drag files anywhere in the chat panel with visual overlay
+- **Multiple sources** — VSCode file tree, editor tabs, OS file manager (Finder/Explorer)
+- **Smart fallback** — `text/uri-list` → `File.path` → `FileReader` for maximum compatibility
 
-### ✏️ Custom Plan Mode Prompt
+### 🔑 Gateway Token Setting
 
-- **New setting** — `openclaw.planModePrompt`: customize the plan mode instruction text
-- **Multiline editor** — Edit in VS Code Settings with full multiline support
-- **Smart defaults** — Leave empty to use the built-in default (auto-follows language)
-- **Stable filtering** — `---- Plan Mode ----` markers are auto-added, filtering logic unchanged
+- **New setting** — `openclaw.gatewayToken`: set token directly in VS Code settings
+- **WSL friendly** — No need to share config files across Windows/WSL boundary
+- **Hot-reload** — Changing token or Gateway URL auto-reconnects without restart
+
+### 🪟 Windows WSL Connection Fix
+
+- **Auto-fallback** — When `localhost` connection fails, automatically retries `127.0.0.1`
+- **Solves WSL 2 edge cases** — DNS resolution issues with `localhost` on some Windows setups
+
+### 🔌 Connection Status UI
+
+- **Clickable status dot** — Click the green/red indicator for connection details
+- **Friendly errors** — Smart error classification (ECONNREFUSED, timeout, auth, etc.)
+- **Quick actions** — Reconnect, open settings, or open chat panel from the status popup
+- **Close chat** — New sidebar close button to reset and close the chat session
 
 
 
@@ -290,26 +302,36 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 🎯 **技能与工作流集成** - 自动检测并使用项目技能
 - 📎 **文件和图片附件** - 附加代码文件和图片
 - 🖼️ **图片粘贴** - 从剪贴板直接粘贴图片
+- 📁 **拖拽文件** - 从资源管理器、文件树、编辑器标签页直接拖拽
 - 🔄 **多窗口支持** - 最多 5 个并行聊天会话，各自独立历史
 - 🌍 **多语言** - 界面和 AI 输出完整国际化（zh-CN、en、ja、ko）
-- 🪟 **Windows 支持** - 95% 平台兼容性
+- 🪟 **Windows 与 WSL 支持** - Windows/WSL 全兼容，自动回退机制
 
-## v0.2.7 新特性
+## v0.2.8 新特性
 
-### 🤖 AI 头像与昵称显示
+### 📁 拖拽文件支持
 
-- **聊天头像** — 连续 assistant 消息组的首条显示 AI 头像和名称
-- **自动获取** — 连接后通过 `agent.identity.get` API 获取
-- **多种格式** — 支持 URL 图片、emoji 和字母头像（渐变圆形背景）
+- **全窗口拖放** — 拖拽文件到聊天面板任意位置，可视化蒙层提示
+- **多种来源** — VSCode 文件树、编辑器标签页、系统文件管理器（Finder/Explorer）
+- **智能兜底** — `text/uri-list` → `File.path` → `FileReader`，最大化兼容性
 
-### ✏️ 计划模式自定义提示词
+### 🔑 Gateway Token 设置
 
-- **新增设置** — `openclaw.planModePrompt`：自定义计划模式指令文本
-- **多行编辑** — 在 VS Code 设置中以多行文本框编辑
-- **智能默认** — 留空使用内置默认文本（自动跟随语言）
-- **过滤稳定** — `---- 计划模式 ----` 标记自动包裹，过滤逻辑无需变动
+- **新增设置** — `openclaw.gatewayToken`：直接在 VS Code 设置中填写 Token
+- **WSL 友好** — 无需在 Windows/WSL 之间共享配置文件
+- **热重载** — 修改 Token 或 Gateway 地址后自动重连，无需重启
 
+### 🪟 Windows WSL 连接修复
 
+- **自动回退** — `localhost` 连接失败时自动尝试 `127.0.0.1`
+- **解决 WSL 2 问题** — 部分 Windows 环境下 `localhost` DNS 解析异常
+
+### 🔌 连接状态 UI
+
+- **可点击状态灯** — 点击绿灯/红灯查看连接详情
+- **友好错误提示** — 智能分类错误（ECONNREFUSED、超时、认证等）
+- **快捷操作** — 重新连接、打开设置、打开对话面板
+- **关闭对话** — 侧边栏新增关闭按钮，重置并关闭当前会话
 
 ### 🌍 多语言 AI 输出
 

@@ -259,7 +259,7 @@ export class GatewayWSClient {
         }
 
         // Generate idempotency key (required by Gateway)
-        const idempotencyKey = `vsc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const idempotencyKey = crypto.randomUUID();
 
         // Use chat.send (webchat protocol) — results come via 'chat' events
         // Set up a listener for streaming chat events before sending

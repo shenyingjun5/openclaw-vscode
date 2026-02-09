@@ -1,7 +1,7 @@
 // @ts-check
 // OpenClaw VSCode Extension - Webview Script
 
-(function() {
+(function () {
     // @ts-ignore
     const vscode = acquireVsCodeApi();
 
@@ -122,10 +122,14 @@
     let messageQueue = []; // 消息队列: { id, text, attachments, createdAt }
     let queueIdCounter = 0; // 队列 ID 计数器
     let connectionStatus = 'disconnected'; // 连接状态: connected/disconnected/connecting
+    let connectionMode = 'ws';              // 连接方式: ws/cli
+    let connectionUrl = '';                 // Gateway 连接地址
+    let connectionLastError = '';           // 最后一次连接错误
     let isRefreshing = false; // 是否正在刷新
     let chatLoading = false; // 是否正在加载历史（对齐 webchat）
     let lastHistoryHash = ''; // 上次 loadHistory 的内容指纹，跳过无变化的重建
-    let autoRefreshInterval = 2000; // 自动刷新间隔（ms）
+    let autoRefreshInterval = 2000; // 自动刷新间隔（ms）- 等待回复时
+    let idleRefreshInterval = 5000; // 空闲刷新间隔（ms）- 后台任务轮询
     let autoRefreshTimer = null; // 自动刷新定时器
     let chatRunId = null;      // 当前运行的 runId，非 null = 等待 AI 回复
     let currentSessionModel = null; // 当前会话的模型（会话级状态）
@@ -181,6 +185,10 @@
     const slashPickerOverlay = document.getElementById('slashPickerOverlay');
     const slashPickerSearch = document.getElementById('slashPickerSearch');
     const slashPickerList = document.getElementById('slashPickerList');
+    const statusPopupOverlay = document.getElementById('statusPopupOverlay');
+    const statusPopupHeader = document.getElementById('statusPopupHeader');
+    const statusPopupDesc = document.getElementById('statusPopupDesc');
+    const statusPopupActions = document.getElementById('statusPopupActions');
 
     // Escape HTML for XSS prevention
     function escapeHtml(text) {
@@ -192,20 +200,20 @@
     // Simple Markdown renderer
     function renderMarkdown(text) {
         if (!text) return '';
-        
+
         let html = text;
-        
+
         // Escape HTML
         html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        
+
         // Code blocks
         html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
             return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
         });
-        
+
         // Inline code
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-        
+
         // Headers
         html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
         html = html.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
@@ -213,28 +221,28 @@
         html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
         html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
         html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-        
+
         // Bold and italic
         html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-        
+
         // Links
         html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-        
+
         // Blockquotes
         html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-        
+
         // Unordered lists
         html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
         html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-        
+
         // Horizontal rule
         html = html.replace(/^---+$/gm, '<hr>');
-        
+
         // Paragraphs
         html = html.replace(/^(?!<[hupob]|<li|<hr|<code|<pre)(.+)$/gm, '<p>$1</p>');
-        
+
         return html;
     }
 
@@ -242,23 +250,23 @@
 
     // 工具名称 → 图标 & 显示名映射
     const TOOL_META = {
-        read:           { icon: '📄', label: 'Read' },
-        write:          { icon: '✏️', label: 'Write' },
-        edit:           { icon: '✏️', label: 'Edit' },
-        exec:           { icon: '⚡', label: 'Exec' },
-        process:        { icon: '⚡', label: 'Process' },
-        web_search:     { icon: '🔍', label: 'Search' },
-        web_fetch:      { icon: '🌐', label: 'Fetch' },
-        browser:        { icon: '🌐', label: 'Browser' },
-        image:          { icon: '🖼️', label: 'Image' },
-        memory_search:  { icon: '🧠', label: 'Memory' },
-        memory_get:     { icon: '🧠', label: 'Memory' },
-        message:        { icon: '💬', label: 'Message' },
-        cron:           { icon: '⏰', label: 'Cron' },
-        tts:            { icon: '🔊', label: 'TTS' },
-        canvas:         { icon: '🎨', label: 'Canvas' },
-        nodes:          { icon: '📱', label: 'Nodes' },
-        gateway:        { icon: '🔌', label: 'Gateway' },
+        read: { icon: '📄', label: 'Read' },
+        write: { icon: '✏️', label: 'Write' },
+        edit: { icon: '✏️', label: 'Edit' },
+        exec: { icon: '⚡', label: 'Exec' },
+        process: { icon: '⚡', label: 'Process' },
+        web_search: { icon: '🔍', label: 'Search' },
+        web_fetch: { icon: '🌐', label: 'Fetch' },
+        browser: { icon: '🌐', label: 'Browser' },
+        image: { icon: '🖼️', label: 'Image' },
+        memory_search: { icon: '🧠', label: 'Memory' },
+        memory_get: { icon: '🧠', label: 'Memory' },
+        message: { icon: '💬', label: 'Message' },
+        cron: { icon: '⏰', label: 'Cron' },
+        tts: { icon: '🔊', label: 'TTS' },
+        canvas: { icon: '🎨', label: 'Canvas' },
+        nodes: { icon: '📱', label: 'Nodes' },
+        gateway: { icon: '🔌', label: 'Gateway' },
         session_status: { icon: '📊', label: 'Status' },
     };
 
@@ -380,7 +388,7 @@
 
         const div = document.createElement('div');
         div.className = `message ${role}`;
-        
+
         if (role === 'assistant') {
             let html = '';
             // 头像行（仅在分组首条显示）
@@ -402,7 +410,7 @@
         } else if (role === 'user') {
             // User message: show attachments + text with line breaks
             let html = '';
-            
+
             // Render attachments
             if (messageAttachments && messageAttachments.length > 0) {
                 html += '<div class="message-attachments">';
@@ -415,20 +423,20 @@
                 }
                 html += '</div>';
             }
-            
+
             // Render text with line breaks preserved
             if (content) {
                 const escaped = escapeHtml(content);
                 html += `<div class="message-text">${escaped.replace(/\n/g, '<br>')}</div>`;
             }
-            
+
             div.innerHTML = html;
         } else {
             div.textContent = content;
         }
-        
+
         messages.appendChild(div);
-        
+
         // 只有之前就在底部时才自动滚动
         if (!skipScroll && wasAtBottom) {
             scrollToBottom();
@@ -439,7 +447,7 @@
     function showThinking() {
         const existing = document.getElementById('thinkingIndicator');
         if (existing) return;
-        
+
         const div = document.createElement('div');
         div.className = 'thinking';
         div.id = 'thinkingIndicator';
@@ -474,7 +482,7 @@
 
     function updateSendButtonState() {
         const hasInput = messageInput.value.trim().length > 0 || attachments.length > 0;
-        
+
         if (isBusy()) {
             sendBtn.classList.remove('active');
             sendBtn.classList.add('sending');
@@ -493,11 +501,11 @@
             updateSendButtonState();
             return;
         }
-        
+
         attachmentsPreview.innerHTML = attachments.map((att, idx) => {
             let icon = '📎';
             let preview = '';
-            
+
             if (att.type === 'image') {
                 icon = '📷';
                 if (att.data) {
@@ -506,7 +514,7 @@
             } else if (att.type === 'reference') {
                 icon = '📄';
             }
-            
+
             return `
                 <div class="attachment-item" data-index="${idx}">
                     ${preview || `<span>${icon}</span>`}
@@ -515,12 +523,12 @@
                 </div>
             `;
         }).join('');
-        
+
         updateSendButtonState();
     }
 
     // Remove attachment
-    window.removeAttachment = function(index) {
+    window.removeAttachment = function (index) {
         attachments.splice(index, 1);
         updateAttachments();
     };
@@ -545,7 +553,7 @@
             attachments: atts ? [...atts] : [],
             createdAt: Date.now()
         };
-        
+
         messageQueue.push(item);
         renderQueue();
     }
@@ -571,19 +579,19 @@
     function renderQueue() {
         const count = messageQueue.length;
         queueCount.textContent = count;
-        
+
         if (count === 0) {
             queueContainer.style.display = 'none';
             queueList.innerHTML = '';
             return;
         }
-        
+
         queueContainer.style.display = 'block';
-        
+
         queueList.innerHTML = messageQueue.map(item => {
             const hasAttachments = item.attachments && item.attachments.length > 0;
             const displayText = item.text || (hasAttachments ? `📎 ${item.attachments.length} 个附件` : '');
-            
+
             return `
                 <div class="chat-queue__item" data-queue-id="${item.id}">
                     <div class="chat-queue__text">${escapeHtml(displayText)}</div>
@@ -602,10 +610,10 @@
     function processNextQueue() {
         if (messageQueue.length === 0) return;
         if (isBusy()) return;
-        
+
         const next = messageQueue.shift();
         renderQueue();
-        
+
         // 发送队列中的消息
         sendMessageNow(next.text, next.attachments);
     }
@@ -615,19 +623,85 @@
 
     // ========== 连接状态管理 ==========
 
-    function updateConnectionStatus(status) {
+    // 绿灯/红灯点击 → 在 webview 内显示状态弹窗
+    statusIndicator.addEventListener('click', () => {
+        showStatusPopup();
+    });
+
+    function showStatusPopup() {
+        const isConnected = connectionStatus === 'connected';
+
+        if (isConnected) {
+            statusPopupHeader.innerHTML = '✅ ' + (locale === 'zh' ? '已连接' : 'Connected');
+            // 根据连接方式显示不同描述
+            if (connectionMode === 'cli') {
+                statusPopupDesc.textContent = 'CLI';
+            } else {
+                // WebSocket 模式：显示 Gateway 地址+端口
+                const displayUrl = connectionUrl || 'WebSocket';
+                statusPopupDesc.textContent = 'WebSocket — ' + displayUrl;
+            }
+            statusPopupActions.innerHTML = `
+                <button class="status-popup-action" data-action="reconnect">🔄 ${locale === 'zh' ? '重新连接' : 'Reconnect'}</button>
+                <button class="status-popup-action" data-action="settings">⚙️ ${locale === 'zh' ? '打开设置' : 'Settings'}</button>
+            `;
+        } else {
+            statusPopupHeader.innerHTML = '❌ ' + (locale === 'zh' ? '连接失败' : 'Disconnected');
+            // 红灯：展示最后出错原因
+            if (connectionLastError) {
+                statusPopupDesc.textContent = connectionLastError;
+            } else {
+                statusPopupDesc.textContent = locale === 'zh' ? '请检查 Gateway 状态' : 'Check Gateway status';
+            }
+            statusPopupActions.innerHTML = `
+                <button class="status-popup-action" data-action="reconnect">🔄 ${locale === 'zh' ? '重新连接' : 'Reconnect'}</button>
+                <button class="status-popup-action" data-action="settings">⚙️ ${locale === 'zh' ? '打开设置' : 'Settings'}</button>
+            `;
+        }
+
+        statusPopupOverlay.classList.add('show');
+    }
+
+    function hideStatusPopup() {
+        statusPopupOverlay.classList.remove('show');
+    }
+
+    statusPopupOverlay.addEventListener('click', (e) => {
+        if (e.target === statusPopupOverlay) {
+            hideStatusPopup();
+        }
+    });
+
+    statusPopupActions.addEventListener('click', (e) => {
+        const btn = e.target.closest('.status-popup-action');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        hideStatusPopup();
+
+        if (action === 'reconnect') {
+            vscode.postMessage({ type: 'reconnect' });
+        } else if (action === 'settings') {
+            vscode.postMessage({ type: 'openSettings' });
+        }
+    });
+
+    function updateConnectionStatus(status, mode, url, lastError) {
         connectionStatus = status;
+        if (mode !== undefined) connectionMode = mode;
+        if (url !== undefined) connectionUrl = url;
+        if (lastError !== undefined) connectionLastError = lastError;
         statusIndicator.classList.remove('connected', 'disconnected', 'connecting');
-        
+
         if (status === 'connected') {
             statusIndicator.classList.add('connected');
-            statusIndicator.title = 'Gateway 已连接 (WebSocket)';
+            const modeLabel = connectionMode === 'cli' ? 'CLI' : 'WebSocket';
+            statusIndicator.title = 'Gateway 已连接 (' + modeLabel + ')';
         } else if (status === 'connecting') {
             statusIndicator.classList.add('connecting');
             statusIndicator.title = '正在连接到 Gateway...';
         } else {
             statusIndicator.classList.add('disconnected');
-            statusIndicator.title = 'Gateway 未连接 - 点击刷新重连';
+            statusIndicator.title = 'Gateway 未连接 - 点击查看详情';
         }
         // 连接状态变化时更新刷新按钮
         updateRefreshButtonDisabled();
@@ -663,12 +737,12 @@
     async function refreshSession() {
         if (isRefreshing) return;
         if (!canRefresh()) return;
-        
+
         chatLoading = true;
         isRefreshing = true;
         updateRefreshButtonDisabled();
         setRefreshButtonState(true);
-        
+
         try {
             // 记录刷新前的滚动位置（自动刷新时保持位置）
             window._refreshScrollState = {
@@ -687,15 +761,16 @@
 
     /**
      * 自动刷新：setInterval 固定间隔
-     * 只在等待 AI 回复期间（chatRunId 非空）实际执行刷新
+     * 等待 AI 回复时用 autoRefreshInterval（2s）
+     * 空闲时用 idleRefreshInterval（5s）捕获后台任务回复
      */
     function startAutoRefresh(interval) {
         stopAutoRefresh();
         autoRefreshInterval = interval;
         if (interval <= 0) return;
-        
+
         autoRefreshTimer = setInterval(() => {
-            if (!!chatRunId && canRefresh() && !isRefreshing) {
+            if (canRefresh() && !isRefreshing) {
                 refreshSession();
             }
         }, interval);
@@ -712,9 +787,9 @@
 
     function parseErrorToMessage(error, context) {
         const errorStr = String(error.message || error);
-        
+
         // 1. 用户停止
-        if (context === 'user_stop' || 
+        if (context === 'user_stop' ||
             (errorStr.includes('exited with code 1') && context === 'stop')) {
             return {
                 type: 'system',
@@ -724,7 +799,7 @@
                 autoHide: true
             };
         }
-        
+
         // 2. 连接错误
         if (errorStr.includes('ECONNREFUSED') || errorStr.includes('connect ECONNREFUSED')) {
             return {
@@ -741,9 +816,10 @@
 openclaw gateway start`
             };
         }
-        
+
         // 3. 超时
-        if (errorStr.includes('ETIMEDOUT') || errorStr.includes('timeout')) {
+        if (errorStr.includes('ETIMEDOUT') || errorStr.includes('timeout') ||
+            errorStr.includes('timed out')) {
             return {
                 type: 'warning',
                 icon: '⚠️',
@@ -755,7 +831,42 @@ openclaw gateway start`
 • 稍后重试`
             };
         }
-        
+
+        // 3.5 认证失败（匹配 "Error: 401 Unauthorized" 等）
+        if (errorStr.includes('401') ||
+            errorStr.includes('Unauthorized') ||
+            errorStr.includes('invalid_api_key') ||
+            errorStr.includes('authentication')) {
+            return {
+                type: 'error',
+                icon: '🔑',
+                color: 'red',
+                text: `API 认证失败
+
+请检查：
+• API Key 是否正确配置
+• API Key 是否已过期
+• 在 openclaw.yaml 中确认 provider 设置`
+            };
+        }
+
+        // 3.6 余额不足
+        if (errorStr.includes('insufficient_quota') ||
+            errorStr.includes('billing') ||
+            errorStr.includes('balance') ||
+            (errorStr.includes('quota') && !errorStr.includes('context'))) {
+            return {
+                type: 'warning',
+                icon: '💰',
+                color: 'yellow',
+                text: `API 余额不足
+
+请检查：
+• 充值 API 账户余额
+• 或切换到其他模型/提供商`
+            };
+        }
+
         // 4. WebSocket 连接错误（排除发送层面的错误）
         if (errorStr.includes('WebSocket') && errorStr.includes('连接')) {
             return {
@@ -773,29 +884,37 @@ openclaw gateway start`
 • 检查防火墙设置`
             };
         }
-        
-        // 5. Token 不足
-        if (errorStr.includes('token limit') || 
+
+        // 5. Token / 上下文超限（匹配 Gateway 返回的 LLM 原始异常字符串）
+        if (errorStr.includes('context_length') ||
+            errorStr.includes('context length') ||
+            errorStr.includes('maximum context') ||
+            errorStr.includes('token limit') ||
+            errorStr.includes('max_tokens') ||
             errorStr.includes('quota exceeded') ||
-            errorStr.includes('insufficient tokens')) {
+            errorStr.includes('insufficient tokens') ||
+            (errorStr.includes('too long') && errorStr.includes('context'))) {
             return {
                 type: 'tip',
                 icon: '💡',
                 color: 'yellow',
-                text: `当前模型 Token 已用完
+                text: `对话上下文过长，已超出模型限制
 
-请切换模型：
-1. 点击右下角模型选择器
-2. 选择其他可用模型`
+请尝试：
+1. 开启新会话
+2. 或切换到上下文窗口更大的模型`
             };
         }
-        
+
         // 6. 模型不可用
-        if (errorStr.includes('model not available') || 
-            errorStr.includes('model unavailable')) {
+        if (errorStr.includes('model not available') ||
+            errorStr.includes('model unavailable') ||
+            errorStr.includes('model_not_found') ||
+            errorStr.includes('model not found') ||
+            errorStr.includes('does not exist')) {
             const modelMatch = errorStr.match(/model[:\s]+([a-z0-9-]+)/i);
             const modelName = modelMatch ? modelMatch[1] : '当前模型';
-            
+
             return {
                 type: 'tip',
                 icon: '💡',
@@ -809,10 +928,12 @@ openclaw gateway start`
 建议：切换到其他模型（如 gpt-4o-mini）`
             };
         }
-        
-        // 7. 频率限制
-        if (errorStr.includes('rate limit') || 
-            errorStr.includes('too many requests')) {
+
+        // 7. 频率限制（匹配 "Error: 429 Rate limit exceeded" 等）
+        if (errorStr.includes('rate limit') ||
+            errorStr.includes('rate_limit') ||
+            errorStr.includes('too many requests') ||
+            errorStr.match(/\b429\b/)) {
             return {
                 type: 'warning',
                 icon: '⚠️',
@@ -824,9 +945,9 @@ openclaw gateway start`
 • 或切换到其他模型`
             };
         }
-        
+
         // 8. 命令未找到
-        if (errorStr.includes('command not found') || 
+        if (errorStr.includes('command not found') ||
             errorStr.includes('not recognized')) {
             return {
                 type: 'error',
@@ -841,9 +962,9 @@ npm install -g openclaw
 设置 → OpenClaw → Openclaw Path`
             };
         }
-        
+
         // 9. 权限错误
-        if (errorStr.includes('EACCES') || 
+        if (errorStr.includes('EACCES') ||
             errorStr.includes('permission denied')) {
             return {
                 type: 'error',
@@ -857,7 +978,7 @@ npm install -g openclaw
 • 在 Windows 使用管理员权限`
             };
         }
-        
+
         // 10. 网络错误
         if (errorStr.includes('ENOTFOUND')) {
             return {
@@ -871,11 +992,11 @@ npm install -g openclaw
 • 检查 Gateway URL 配置（设置 → OpenClaw → Gateway URL）`
             };
         }
-        
+
         // 11. 未知错误
-        const shortError = errorStr.length > 100 ? 
+        const shortError = errorStr.length > 100 ?
             errorStr.substring(0, 100) + '...' : errorStr;
-        
+
         return {
             type: 'error',
             icon: '❌',
@@ -896,21 +1017,21 @@ ${shortError}
         if (autoHide) {
             msg.classList.add('auto-hide');
         }
-        
+
         const iconSpan = document.createElement('span');
         iconSpan.className = 'icon';
         iconSpan.textContent = icon;
-        
+
         const content = document.createElement('div');
         content.className = 'content';
         content.textContent = text;
-        
+
         msg.appendChild(iconSpan);
         msg.appendChild(content);
-        
+
         messages.appendChild(msg);
         messages.scrollTop = messages.scrollHeight;
-        
+
         // 自动移除
         if (autoHide) {
             setTimeout(() => msg.remove(), 2500);
@@ -919,7 +1040,7 @@ ${shortError}
 
     function handleError(error, context) {
         const errorMsg = parseErrorToMessage(error, context);
-        
+
         showSystemMessage(
             errorMsg.icon,
             errorMsg.text,
@@ -935,7 +1056,7 @@ ${shortError}
 
         if (isBusy()) {
             enqueueMessage(text, attachments);
-            
+
             // 清空输入框
             messageInput.value = '';
             messageInput.style.height = 'auto';
@@ -952,17 +1073,17 @@ ${shortError}
     function sendMessageNow(text, atts) {
         // Build message content
         let fullMessage = text;
-        
+
         // Add file references
         const fileRefs = atts.filter(a => a.type === 'file').map(a => `- ${a.path}`);
         const references = atts.filter(a => a.type === 'reference').map(a => `- ${a.path}`);
         const images = atts.filter(a => a.type === 'image');
-        
+
         if (fileRefs.length > 0 || references.length > 0) {
             const allRefs = [...fileRefs, ...references];
             fullMessage = `[引用文件 - 请用 read 工具读取后处理]\n${allRefs.join('\n')}\n\n${fullMessage}`;
         }
-        
+
         for (const img of images) {
             if (img.path) {
                 fullMessage += `\n\n[附件图片: ${img.path}]`;
@@ -971,7 +1092,7 @@ ${shortError}
 
         // Show user message with attachments
         addMessage('user', text || '[附件]', atts.length > 0 ? [...atts] : null);
-        
+
         // Clear input if called from sendMessage (not from queue)
         if (atts === attachments) {
             messageInput.value = '';
@@ -984,7 +1105,7 @@ ${shortError}
         isSending = true;
         updateSendButtonState();
         showThinking();
-        
+
         vscode.postMessage({
             type: 'sendMessage',
             content: fullMessage,
@@ -1011,31 +1132,31 @@ ${shortError}
     function renderFileList(query) {
         const q = query.toLowerCase();
         let filtered = currentFiles;
-        
+
         if (q) {
             // 前缀匹配（优先级高）
-            const prefixMatches = currentFiles.filter(f => 
+            const prefixMatches = currentFiles.filter(f =>
                 f.name.toLowerCase().startsWith(q)
             );
-            
+
             // 包含匹配（优先级低）- 只匹配文件名，不匹配路径
-            const containsMatches = currentFiles.filter(f => 
+            const containsMatches = currentFiles.filter(f =>
                 !f.name.toLowerCase().startsWith(q) &&
                 f.name.toLowerCase().includes(q)
             );
-            
+
             filtered = [...prefixMatches, ...containsMatches];
         }
-        
+
         // Sort: directories first, then files
         filtered.sort((a, b) => {
             if (a.isDirectory && !b.isDirectory) return -1;
             if (!a.isDirectory && b.isDirectory) return 1;
             return 0;
         });
-        
+
         filtered = filtered.slice(0, 50);
-        
+
         filePickerList.innerHTML = filtered.map(f => {
             const icon = f.isDirectory ? '📁' : '📄';
             const itemClass = f.isDirectory ? 'file-picker-item directory' : 'file-picker-item';
@@ -1046,7 +1167,7 @@ ${shortError}
                 <span class="file-picker-item-path">${escapeHtml(f.relativePath || '')}</span>
             </div>
         `}).join('');
-        
+
         if (filtered.length === 0) {
             filePickerList.innerHTML = '<div class="file-picker-empty">No matching files</div>';
         }
@@ -1062,7 +1183,7 @@ ${shortError}
         attachments.push({ type, name: displayName, path });
         updateAttachments();
         hideFilePicker();
-        
+
         const text = messageInput.value;
         if (text.endsWith('@')) {
             messageInput.value = text.slice(0, -1);
@@ -1076,14 +1197,14 @@ ${shortError}
 
     function getSlashPickerItems() {
         const items = [];
-        
+
         // Commands
         items.push({ type: 'group', label: `⚡ ${i18n.commands}` });
         items.push({ type: 'command', name: 'init', label: '/init', desc: i18n.cmdInit });
         items.push({ type: 'command', name: 'skills', label: '/skills', desc: i18n.cmdSkills });
         items.push({ type: 'command', name: 'workflow', label: '/workflow', desc: i18n.cmdWorkflow });
         items.push({ type: 'command', name: 'clear', label: '/clear', desc: i18n.cmdClear });
-        
+
         // Skills from project status
         if (projectStatus && projectStatus.skills && projectStatus.skills.length > 0) {
             items.push({ type: 'group', label: `🎯 ${i18n.skills}` });
@@ -1095,7 +1216,7 @@ ${shortError}
                 });
             }
         }
-        
+
         // Workflows (multiple)
         if (projectStatus && projectStatus.workflows && projectStatus.workflows.length > 0) {
             items.push({ type: 'group', label: `📋 ${i18n.workflow}` });
@@ -1107,7 +1228,7 @@ ${shortError}
                 });
             }
         }
-        
+
         return items;
     }
 
@@ -1129,7 +1250,7 @@ ${shortError}
         const q = query.toLowerCase();
         let html = '';
         let visibleIndex = 0;
-        
+
         for (const item of slashPickerItems) {
             if (item.type === 'group') {
                 // Check if any items in this group match
@@ -1140,13 +1261,13 @@ ${shortError}
                 }
                 continue;
             }
-            
+
             if (q && !matchesQuery(item, q)) {
                 continue;
             }
-            
+
             const selected = visibleIndex === slashPickerSelectedIndex ? ' selected' : '';
-            
+
             if (item.type === 'command') {
                 html += `
                     <div class="slash-picker-item command${selected}" data-type="command" data-name="${escapeHtml(item.name)}" data-index="${visibleIndex}">
@@ -1166,14 +1287,14 @@ ${shortError}
                         <span class="slash-item-name">${escapeHtml(item.name)} <span style="opacity:0.6; font-size:0.9em">(${escapeHtml(item.relativePath)})</span></span>
                     </div>`;
             }
-            
+
             visibleIndex++;
         }
-        
+
         if (!html) {
             html = '<div class="slash-picker-empty">No matching commands</div>';
         }
-        
+
         slashPickerList.innerHTML = html;
     }
 
@@ -1199,35 +1320,45 @@ ${shortError}
         return false;
     }
 
+    // Track the cursor position where / was typed
+    let slashTriggerPos = -1;
+
     function selectSlashItem(type, name) {
         hideSlashPicker();
-        
-        // Clear the / from input
-        messageInput.value = '';
-        
+
+        // Replace the / at trigger position, keep surrounding text
+        const val = messageInput.value;
+        const before = slashTriggerPos >= 0 ? val.substring(0, slashTriggerPos) : '';
+        const after = slashTriggerPos >= 0 ? val.substring(slashTriggerPos + 1) : '';
+
         if (type === 'command') {
-            // Execute command immediately
+            // Execute command immediately, remove the /
+            messageInput.value = (before + after).trim();
             vscode.postMessage({ type: 'executeCommand', command: name });
         } else if (type === 'skill') {
-            // Insert /skillname into input
-            messageInput.value = `/${name} `;
+            // Insert /skillname at trigger position
+            messageInput.value = before + `/${name} ` + after;
             messageInput.focus();
-            autoResize();
-            updateSendButtonState();
+            // Set cursor after inserted text
+            const cursorPos = before.length + name.length + 2;
+            messageInput.setSelectionRange(cursorPos, cursorPos);
         } else if (type === 'workflow') {
-            // Insert /.workflowname into input
-            messageInput.value = `/.${name} `;
+            // Insert /.workflowname at trigger position
+            messageInput.value = before + `/.${name} ` + after;
             messageInput.focus();
-            autoResize();
-            updateSendButtonState();
+            const cursorPos = before.length + name.length + 3;
+            messageInput.setSelectionRange(cursorPos, cursorPos);
         }
+        autoResize();
+        updateSendButtonState();
+        slashTriggerPos = -1;
     }
 
     // Slash picker event listeners
     slashPickerOverlay.addEventListener('click', (e) => {
         if (e.target === slashPickerOverlay) {
             hideSlashPicker();
-            messageInput.value = '';
+            messageInput.focus();
         }
     });
 
@@ -1239,7 +1370,7 @@ ${shortError}
     slashPickerSearch.addEventListener('keydown', (e) => {
         const items = slashPickerList.querySelectorAll('.slash-picker-item');
         const count = items.length;
-        
+
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             slashPickerSelectedIndex = (slashPickerSelectedIndex + 1) % count;
@@ -1256,7 +1387,7 @@ ${shortError}
             }
         } else if (e.key === 'Escape') {
             hideSlashPicker();
-            messageInput.value = '';
+            messageInput.focus();
         }
     });
 
@@ -1280,7 +1411,7 @@ ${shortError}
                 data: base64
             });
             updateAttachments();
-            
+
             vscode.postMessage({
                 type: 'saveImage',
                 data: base64,
@@ -1299,7 +1430,9 @@ ${shortError}
             vscode.postMessage({ type: 'getFiles' });
         }
         // Show slash picker when typing /
-        if (e.data === '/' && messageInput.value === '/') {
+        if (e.data === '/') {
+            // Record the position of / (cursor is now after /)
+            slashTriggerPos = (messageInput.selectionStart || 1) - 1;
             showSlashPicker();
         }
     });
@@ -1311,14 +1444,14 @@ ${shortError}
                 return;
             }
             e.preventDefault();
-            
+
             const text = messageInput.value.trim();
-            
+
             // 输入框为空 → 不做任何动作
             if (!text && attachments.length === 0) {
                 return;
             }
-            
+
             // 有内容 → 发送（可能排队）
             sendMessage();
         }
@@ -1335,26 +1468,78 @@ ${shortError}
         }
     });
 
-    // Drag and drop
-    inputBox.addEventListener('dragover', (e) => {
+    // Drag and drop — full window drop zone
+    const dropOverlay = document.getElementById('dropOverlay');
+    let dragCounter = 0; // track nested dragenter/dragleave pairs
+
+    document.body.addEventListener('dragenter', (e) => {
         e.preventDefault();
-        inputBox.classList.add('drag-over');
+        dragCounter++;
+        if (dragCounter === 1) {
+            dropOverlay.classList.add('show');
+        }
     });
 
-    inputBox.addEventListener('dragleave', () => {
-        inputBox.classList.remove('drag-over');
+    document.body.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
     });
 
-    inputBox.addEventListener('drop', (e) => {
+    document.body.addEventListener('dragleave', (e) => {
         e.preventDefault();
-        inputBox.classList.remove('drag-over');
-        
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            dropOverlay.classList.remove('show');
+        }
+    });
+
+    document.body.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropOverlay.classList.remove('show');
+
+        // 1. text/uri-list — VSCode 文件树 / 编辑器 tab / Finder（按 Shift）
+        //    这是最可靠的方式，两种来源都支持
+        const uriList = e.dataTransfer.getData('text/uri-list');
+        if (uriList) {
+            const uris = uriList.split(/\r?\n/).filter(u => u && !u.startsWith('#'));
+            if (uris.length > 0) {
+                vscode.postMessage({
+                    type: 'handleDrop',
+                    uris: uris
+                });
+                return;
+            }
+        }
+
+        // 2. dataTransfer.files — 外部拖放兜底
+        //    较新 Electron 中 File.path 可能为空，尝试 path，否则用 FileReader 读内容
         const files = Array.from(e.dataTransfer.files);
         if (files.length > 0) {
-            vscode.postMessage({
-                type: 'handleDrop',
-                files: files.map(f => ({ name: f.name, path: f.path }))
-            });
+            const filesWithPath = files.filter(f => f.path);
+            if (filesWithPath.length > 0) {
+                // 旧版 Electron: File.path 可用
+                vscode.postMessage({
+                    type: 'handleDrop',
+                    files: filesWithPath.map(f => ({ name: f.name, path: f.path }))
+                });
+            } else {
+                // 新版 Electron: File.path 不可用，读取文件内容发送给扩展
+                for (const file of files) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const base64 = /** @type {string} */ (reader.result).split(',')[1];
+                        vscode.postMessage({
+                            type: 'handleDropContent',
+                            name: file.name,
+                            base64: base64,
+                            mimeType: file.type || 'application/octet-stream'
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
         }
     });
 
@@ -1539,7 +1724,7 @@ ${shortError}
 
     // File picker
     closeFilePicker.addEventListener('click', hideFilePicker);
-    
+
     filePickerOverlay.addEventListener('click', (e) => {
         if (e.target === filePickerOverlay) {
             hideFilePicker();
@@ -1561,17 +1746,17 @@ ${shortError}
     // Receive messages from extension
     window.addEventListener('message', (event) => {
         const message = event.data;
-        
+
         switch (message.type) {
             case 'setLocale':
                 setLocale(message.locale || 'en');
                 break;
-                
+
             case 'addMessage':
                 hideThinking();
                 addMessage(message.role, message.content, null, false, null, message.role === 'assistant');
                 break;
-                
+
             case 'addToolCall':
                 addToolCards([{ name: message.name, args: message.args }]);
                 break;
@@ -1581,15 +1766,15 @@ ${shortError}
                     addToolCards(message.toolCalls);
                 }
                 break;
-                
+
             case 'showThinking':
                 showThinking();
                 break;
-                
+
             case 'hideThinking':
                 hideThinking();
                 break;
-                
+
             case 'sendingStarted':
                 // 正在发送 RPC
                 isSending = true;
@@ -1608,44 +1793,45 @@ ${shortError}
                 // AI 回复完成（收到 chat final 事件）
                 isSending = false;
                 chatRunId = null;
-                stopAutoRefresh();
+                // 切换到空闲刷新（5s），捕获后台任务回复
+                startAutoRefresh(idleRefreshInterval);
                 updateSendButtonState();
                 hideThinking();
-                
+
                 // 自动处理下一个队列项
                 setTimeout(() => {
                     processNextQueue();
                 }, 500);
                 break;
-                
+
             case 'error':
                 hideThinking();
                 isSending = false;
                 updateSendButtonState();
-                
+
                 // 使用友好的错误提示
                 handleError(message.content, message.context || 'send');
-                
+
                 // 出错时也尝试处理下一个队列项
                 setTimeout(() => {
                     processNextQueue();
                 }, 1000);
                 break;
-                
+
             case 'systemMessage':
                 // 系统消息（停止、提示等）
                 handleError(message.error.message, message.error.context);
                 break;
-                
+
             case 'files':
                 showFilePicker(message.files);
                 break;
-                
+
             case 'fileSaved':
                 const att = attachments.find(a => a.name === message.name);
                 if (att) att.path = message.path;
                 break;
-                
+
             case 'fileDropped':
                 attachments.push({
                     type: 'file',
@@ -1654,7 +1840,7 @@ ${shortError}
                 });
                 updateAttachments();
                 break;
-                
+
             case 'fileSelected':
                 attachments.push({
                     type: 'file',
@@ -1663,15 +1849,15 @@ ${shortError}
                 });
                 updateAttachments();
                 break;
-                
+
             case 'clearMessages':
                 messages.innerHTML = '';
                 break;
-                
+
             case 'loadHistory':
                 if (message.messages && message.messages.length > 0) {
                     // 计算内容指纹，跳过无变化的重建（避免自动刷新闪烁）
-                    const hash = message.messages.map(m => 
+                    const hash = message.messages.map(m =>
                         `${m.role}:${(m.content || '').length}:${(m.toolCalls || []).length}:${(m.thinking || '').length}`
                     ).join('|');
                     if (hash === lastHistoryHash) {
@@ -1700,7 +1886,7 @@ ${shortError}
                             prevRole = msg.role;
                         }
                     });
-                    
+
                     // 如果仍处于忙碌状态，重新显示 thinking indicator
                     if (isBusy()) {
                         showThinking();
@@ -1714,7 +1900,7 @@ ${shortError}
                     });
                 }
                 break;
-                
+
             case 'updateModels':
                 window._modelData = message.models.map(m => ({
                     id: m.id,
@@ -1722,14 +1908,14 @@ ${shortError}
                     shortName: m.id.includes('/') ? m.id.split('/').slice(1).join('/') : m.id,
                     selected: currentSessionModel ? (m.id === currentSessionModel) : m.selected
                 }));
-                
+
                 if (!currentSessionModel) {
                     const defaultModel = window._modelData.find(m => m.selected);
                     if (defaultModel) {
                         currentSessionModel = defaultModel.id;
                     }
                 }
-                
+
                 renderDropdowns();
                 break;
 
@@ -1737,20 +1923,20 @@ ${shortError}
                 currentThinkLevel = message.level || 'low';
                 renderThinkDropdown();
                 break;
-                
+
             case 'updatePlanMode':
                 planMode = message.enabled;
                 renderModeDropdown();
                 break;
-                
+
             case 'projectStatus':
                 updateProjectStatus(message);
                 break;
-                
+
             case 'skillTriggered':
                 showSkillHint(message.skill);
                 break;
-                
+
             case 'commandExecuted':
                 // Command was executed, nothing to show
                 break;
@@ -1760,15 +1946,21 @@ ${shortError}
                 hideThinking();
                 renderChangeCard(message.changeSet);
                 break;
-                
+
             case 'connectionStatus':
-                // 连接状态更新
-                updateConnectionStatus(message.status);
+                // 连接状态更新（附带 mode/url/lastError）
+                updateConnectionStatus(message.status, message.mode, message.url, message.lastError);
                 break;
-                
+
             case 'autoRefreshInterval':
-                // 自动刷新间隔配置
-                startAutoRefresh(message.interval);
+                // 保存配置的刷新间隔（等待回复时使用）
+                autoRefreshInterval = message.interval;
+                // 当前空闲则用空闲间隔启动
+                if (!chatRunId) {
+                    startAutoRefresh(idleRefreshInterval);
+                } else {
+                    startAutoRefresh(autoRefreshInterval);
+                }
                 break;
 
             case 'assistantIdentity':
@@ -1776,11 +1968,11 @@ ${shortError}
                 assistantName = message.name || '';
                 assistantAvatar = message.avatar || '';
                 break;
-                
+
             case 'systemNotification':
                 showSystemNotification(message.message, message.timeout);
                 break;
-                
+
             case 'refreshComplete':
                 // 刷新完成
                 chatLoading = false;
@@ -1805,12 +1997,12 @@ ${shortError}
             };
         }
     }
-    
+
     function showSkillHint(skill) {
         // Remove existing hint
         const existing = document.querySelector('.skill-hint');
         if (existing) existing.remove();
-        
+
         const hint = document.createElement('div');
         hint.className = 'skill-hint';
         hint.innerHTML = `
@@ -1818,10 +2010,10 @@ ${shortError}
             <span class="skill-hint-text">${locale === 'zh' ? '已触发技能' : 'Triggered skill'}: <strong>${escapeHtml(skill.name)}</strong></span>
             <span class="skill-hint-trigger">"${escapeHtml(skill.trigger)}"</span>
         `;
-        
+
         // Insert before messages
         messagesContainer.insertBefore(hint, messagesContainer.firstChild);
-        
+
         // Auto-remove after 5 seconds
         setTimeout(() => {
             hint.classList.add('fade-out');
@@ -1835,46 +2027,46 @@ ${shortError}
     vscode.postMessage({ type: 'ready' });
 })();
 
-    function showSystemNotification(text, timeout) {
-        const notif = document.createElement('div');
-        notif.className = 'system-notification';
-        notif.textContent = text;
-        document.body.appendChild(notif);
-        
-        // Trigger reflow
-        void notif.offsetHeight;
-        notif.classList.add('show');
-        
-        setTimeout(() => {
-            notif.classList.remove('show');
-            setTimeout(() => notif.remove(), 300);
-        }, timeout || 2000);
-    }
+function showSystemNotification(text, timeout) {
+    const notif = document.createElement('div');
+    notif.className = 'system-notification';
+    notif.textContent = text;
+    document.body.appendChild(notif);
 
-    // ========== 变更卡片渲染 ==========
+    // Trigger reflow
+    void notif.offsetHeight;
+    notif.classList.add('show');
 
-    function renderChangeCard(changeSet) {
-        if (!changeSet || !changeSet.files || changeSet.files.length === 0) {
-            return;
-        }
-
-        // 创建变更卡片实例
-        const card = new ChangeCard(changeSet, vscode);
-        const cardElement = card.render();
-
-        // 添加到消息容器
-        messages.appendChild(cardElement);
-
-        // 滚动到底部
-        setTimeout(() => {
-            messages.scrollTop = messages.scrollHeight;
-        }, 100);
-    }
-
-    // ========== 初始化 ==========
-    
-    // 页面加载完成后初始化
     setTimeout(() => {
-        // 请求自动刷新配置（连接状态会在 ready 时自动建立）
-        vscode.postMessage({ type: 'getAutoRefreshInterval' });
+        notif.classList.remove('show');
+        setTimeout(() => notif.remove(), 300);
+    }, timeout || 2000);
+}
+
+// ========== 变更卡片渲染 ==========
+
+function renderChangeCard(changeSet) {
+    if (!changeSet || !changeSet.files || changeSet.files.length === 0) {
+        return;
+    }
+
+    // 创建变更卡片实例
+    const card = new ChangeCard(changeSet, vscode);
+    const cardElement = card.render();
+
+    // 添加到消息容器
+    messages.appendChild(cardElement);
+
+    // 滚动到底部
+    setTimeout(() => {
+        messages.scrollTop = messages.scrollHeight;
     }, 100);
+}
+
+// ========== 初始化 ==========
+
+// 页面加载完成后初始化
+setTimeout(() => {
+    // 请求自动刷新配置（连接状态会在 ready 时自动建立）
+    vscode.postMessage({ type: 'getAutoRefreshInterval' });
+}, 100);

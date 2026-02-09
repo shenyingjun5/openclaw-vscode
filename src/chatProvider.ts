@@ -16,17 +16,19 @@ class SidebarAdapter implements WebviewAdapter {
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _controller: ChatController;
+    private readonly _controller: ChatController;
+    private readonly _gateway: GatewayClient;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
-        private readonly _gateway: GatewayClient
+        gateway: GatewayClient
     ) {
+        this._gateway = gateway;
         const windowId = vscode.env.sessionId.slice(0, 8);
         const sessionKey = `agent:main:vscode-main-${windowId}`;
 
         const sessionManager = new ChatSessionManager(_extensionUri);
-        this._controller = new ChatController(_extensionUri, _gateway, sessionManager, sessionKey);
+        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey);
     }
 
     public resolveWebviewView(
@@ -100,5 +102,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     public async sendFile() {
         await this._controller.sendFile();
+    }
+
+    public async closeChat() {
+        // 1. deleteSession on Gateway
+        this._gateway.deleteSession(this._controller.sessionKey).catch(() => {});
+        // 2. Reset local session state
+        this._controller.sessionManager.resetSession(this._controller.sessionKey);
+        // 3. Clear webview messages
+        this._controller.clearChat();
     }
 }

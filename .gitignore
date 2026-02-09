@@ -4,6 +4,10 @@ node_modules/
 .vscode-test/
 .ovsx-token
 
+# Tests (private)
+tests/
+test-newline.mjs
+
 # Temporary files
 *.py
 *.orig

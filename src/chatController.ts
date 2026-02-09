@@ -92,7 +92,7 @@ export class ChatController {
     private _chatRunId: string | null = null;   // 当前运行的 runId，非 null = 等待 AI 回复
     private _chatEventHandler: ((payload: any) => void) | null = null;
     private _webview: WebviewAdapter | null = null;
-        private _disposables: vscode.Disposable[] = [];
+    private _disposables: vscode.Disposable[] = [];
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -204,7 +204,15 @@ export class ChatController {
                 break;
 
             case 'handleDrop':
-                await this._handleFileDrop(data.files);
+                if (data.uris) {
+                    await this._handleUriDrop(data.uris);
+                } else if (data.files) {
+                    await this._handleFileDrop(data.files);
+                }
+                break;
+
+            case 'handleDropContent':
+                await this._handleDropContent(data.name, data.base64, data.mimeType);
                 break;
 
             case 'saveImage':
@@ -258,6 +266,19 @@ export class ChatController {
 
             case 'openFile':
                 await this._handleOpenFile(data.filePath);
+                break;
+
+            case 'showConnectionStatus':
+                vscode.commands.executeCommand('openclaw.showConnectionStatus');
+                break;
+
+            case 'reconnect':
+                try {
+                    await this._gateway.reloadTokenAndReconnect();
+                    vscode.window.showInformationMessage('招财: 重新连接成功');
+                } catch (err) {
+                    vscode.window.showWarningMessage(`招财: 重新连接失败 - ${err instanceof Error ? err.message : err}`);
+                }
                 break;
         }
     }
@@ -448,27 +469,25 @@ export class ChatController {
         }
 
         try {
-            // 生成 idempotencyKey 并发送 RPC（fire-and-forget，不等 AI 回复）
-            const runId = await this._gateway.sendChat(this._sessionKey, messageToSend);
-            
-            if (!runId) {
-                throw new Error('发送失败：无法获取 runId');
-            }
-
-            // 设置 chatRunId，开始监听 chat 事件
+            // 先生成 runId 并设置状态 + 监听器（对齐 WebChat：避免 chat 事件先于 RPC 响应到达时被跳过）
+            const runId = crypto.randomUUID();
             this._chatRunId = runId;
-            this._isSending = false;
             this._setupChatEventListener();
 
-            // 通知 webview：进入等待回复阶段（chatRunId 非空 = 按钮禁用 + 自动刷新）
-            this._webview?.postMessage({ 
+            // 通知 webview：进入等待回复阶段
+            this._isSending = false;
+            this._webview?.postMessage({
                 type: 'waitingReply',
                 runId
             });
 
+            // 发送 RPC
+            await this._gateway.sendChat(this._sessionKey, messageToSend, runId);
+
         } catch (err: any) {
             this._isSending = false;
             this._chatRunId = null;
+            this._removeChatEventListener();
             this._webview?.postMessage({
                 type: 'error',
                 content: err.message || String(err),
@@ -493,11 +512,11 @@ export class ChatController {
             const eventSessionKey = payload.sessionKey || '';
             if (!eventSessionKey.includes(this._sessionKey.replace('agent:main:', ''))) return;
 
-            // runId 匹配：如果事件有 runId 且与 chatRunId 不同，忽略 delta（但 final 仍处理）
+            // runId 匹配：如果事件有 runId 且与 chatRunId 不同，忽略 delta
             if (payload.runId && payload.runId !== this._chatRunId) {
                 if (payload.state === 'final') {
-                    // 其他 run 的 final，忽略
-                    return;
+                    // 子 agent 完成 → 刷新历史（子 agent 结果会追加到主会话）
+                    this._loadHistory();
                 }
                 return;
             }
@@ -563,7 +582,10 @@ export class ChatController {
         const isConnected = this._gateway.isConnected();
         this._webview?.postMessage({
             type: 'connectionStatus',
-            status: isConnected ? 'connected' : 'disconnected'
+            status: isConnected ? 'connected' : 'disconnected',
+            mode: this._gateway.getMode(),
+            url: this._gateway.getConnectedUrl(),
+            lastError: this._gateway.getLastError()
         });
     }
 
@@ -571,14 +593,20 @@ export class ChatController {
         try {
             this._webview?.postMessage({
                 type: 'connectionStatus',
-                status: 'connecting'
+                status: 'connecting',
+                mode: this._gateway.getMode(),
+                url: this._gateway.getConnectedUrl(),
+                lastError: ''
             });
 
             await this._gateway.connect();
 
             this._webview?.postMessage({
                 type: 'connectionStatus',
-                status: 'connected'
+                status: 'connected',
+                mode: this._gateway.getMode(),
+                url: this._gateway.getConnectedUrl(),
+                lastError: ''
             });
 
             // 连接成功后设置 verbose level
@@ -586,7 +614,10 @@ export class ChatController {
         } catch (err) {
             this._webview?.postMessage({
                 type: 'connectionStatus',
-                status: 'disconnected'
+                status: 'disconnected',
+                mode: this._gateway.getMode(),
+                url: this._gateway.getConnectedUrl(),
+                lastError: this._gateway.getLastError()
             });
         }
     }
@@ -666,6 +697,56 @@ export class ChatController {
                 name: file.name,
                 path: file.path
             });
+        }
+    }
+
+    /**
+     * 处理 text/uri-list 拖放（VSCode 文件树 / 编辑器 tab）
+     */
+    private async _handleUriDrop(uris: string[]) {
+        for (const uriStr of uris) {
+            try {
+                const uri = vscode.Uri.parse(uriStr);
+                if (uri.scheme !== 'file') continue;
+
+                const fsPath = uri.fsPath;
+                const stat = await vscode.workspace.fs.stat(uri);
+                const isDirectory = (stat.type & vscode.FileType.Directory) !== 0;
+                const name = fsPath.split('/').pop() || fsPath;
+
+                this._webview?.postMessage({
+                    type: 'fileDropped',
+                    name: isDirectory ? name + '/' : name,
+                    path: fsPath
+                });
+            } catch {
+                // 文件不存在或无法访问，跳过
+            }
+        }
+    }
+
+    /**
+     * 处理通过 FileReader 读取的文件内容（新版 Electron File.path 不可用时兜底）
+     */
+    private async _handleDropContent(name: string, base64: string, _mimeType: string) {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const tmpDir = workspaceFolder
+                ? vscode.Uri.joinPath(workspaceFolder.uri, '.openclaw', 'tmp')
+                : vscode.Uri.file(require('os').tmpdir());
+
+            await vscode.workspace.fs.createDirectory(tmpDir);
+            const fileUri = vscode.Uri.joinPath(tmpDir, name);
+            const buffer = Buffer.from(base64, 'base64');
+            await vscode.workspace.fs.writeFile(fileUri, buffer);
+
+            this._webview?.postMessage({
+                type: 'fileDropped',
+                name: name,
+                path: fileUri.fsPath
+            });
+        } catch {
+            // 保存失败，跳过
         }
     }
 
