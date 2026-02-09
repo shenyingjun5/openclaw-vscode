@@ -2,7 +2,7 @@
   "name": "openclaw",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
