@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [0.2.10] - 2026-02-10
+
+### Fixed - 修复 🐛
+
+#### 链接渲染优化 🔗
+- **Markdown 自动链接** — 支持 `<https://...>` 语法自动转为可点击链接
+- **纯文本 URL 检测** — 未包裹的 URL 自动识别为可点击链接
+- **代码块保护** — 代码块和行内代码中的 URL 不会被错误转换（占位符机制）
+- **系统浏览器打开** — 所有外部链接点击后通过系统默认浏览器打开，而非 webview 内导航
+- **Markdown auto-links** — Support `<https://...>` syntax as clickable links
+- **Plain-text URL detection** — Bare URLs auto-detected as clickable links
+- **Code block protection** — URLs inside code blocks/inline code are preserved (placeholder mechanism)
+- **Open in system browser** — External links open in default browser instead of webview navigation
+
+#### 重连状态反馈 🔌
+- **重连成功推送绿灯** — 点击重连成功后，状态灯立即从红变绿，清除错误信息
+- **重连失败更新错误** — 重连失败时更新最新错误信息到状态弹窗
+- **Reconnect status feedback** — Status indicator turns green immediately after successful reconnect
+- **Reconnect failure update** — Error message updates in status popup on reconnect failure
+
 ## [0.2.9] - 2026-02-09
 
 ### Fixed - 修复 🐛

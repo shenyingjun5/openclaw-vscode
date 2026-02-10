@@ -203,16 +203,27 @@
 
         let html = text;
 
-        // Escape HTML
+        // ① 先处理 Markdown 自动链接 <https://...> （在 escapeHtml 之前！）
+        html = html.replace(/<(https?:\/\/[^>]+)>/g, '[$1]($1)');
+
+        // ② Escape HTML（把 < > & 转义，防止 XSS）
         html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        // Code blocks
+        // ③ Code blocks — 用占位符保护（内部不应有链接等处理）
+        const codeBlocks = [];
         html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-            return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
+            const placeholder = `\x00CB${codeBlocks.length}\x00`;
+            codeBlocks.push(`<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
+            return placeholder;
         });
 
-        // Inline code
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // ④ Inline code — 同样用占位符保护
+        const inlineCodes = [];
+        html = html.replace(/`([^`]+)`/g, (match, code) => {
+            const placeholder = `\x00IC${inlineCodes.length}\x00`;
+            inlineCodes.push(`<code>${code}</code>`);
+            return placeholder;
+        });
 
         // Headers
         html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
@@ -227,8 +238,11 @@
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-        // Links
+        // ⑤ Markdown 链接 [text](url)
         html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+        // ⑥ 自动检测纯文本 URL（排除已在 <a href="..."> 内的）
+        html = html.replace(/(^|[^"'>])(https?:\/\/[^\s<)\]"']+)/g, '$1<a href="$2" target="_blank">$2</a>');
 
         // Blockquotes
         html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
@@ -241,7 +255,17 @@
         html = html.replace(/^---+$/gm, '<hr>');
 
         // Paragraphs
-        html = html.replace(/^(?!<[hupob]|<li|<hr|<code|<pre)(.+)$/gm, '<p>$1</p>');
+        html = html.replace(/^(?!<[hupob]|<li|<hr|<code|<pre|\x00)(.+)$/gm, '<p>$1</p>');
+
+        // ⑦ 恢复 inline code 占位符
+        for (let i = 0; i < inlineCodes.length; i++) {
+            html = html.replace(`\x00IC${i}\x00`, inlineCodes[i]);
+        }
+
+        // ⑧ 恢复 code block 占位符
+        for (let i = 0; i < codeBlocks.length; i++) {
+            html = html.replace(`\x00CB${i}\x00`, codeBlocks[i]);
+        }
 
         return html;
     }
@@ -1733,6 +1757,19 @@ ${shortError}
 
     filePickerSearch.addEventListener('input', (e) => {
         renderFileList(e.target.value);
+    });
+
+    // Global interceptor: open external links in default browser
+    document.addEventListener('click', (e) => {
+        const anchor = e.target.closest('a[href]');
+        if (anchor) {
+            const href = anchor.getAttribute('href');
+            if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+                e.preventDefault();
+                e.stopPropagation();
+                vscode.postMessage({ type: 'openUrl', url: href });
+            }
+        }
     });
 
     filePickerList.addEventListener('click', (e) => {

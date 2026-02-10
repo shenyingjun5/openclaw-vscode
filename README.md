@@ -19,31 +19,19 @@ AI coding assistant for VS Code, powered by OpenClaw.
 - 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
 - 🪟 **Windows & WSL Support** - Enhanced Windows/WSL compatibility with auto-fallback
 
-## What's New in v0.2.8
+## What's New in v0.2.10
 
-### 📁 Drag & Drop File Support
+### 🔗 Link Rendering Improvements
 
-- **Full-window drop zone** — Drag files anywhere in the chat panel with visual overlay
-- **Multiple sources** — VSCode file tree, editor tabs, OS file manager (Finder/Explorer)
-- **Smart fallback** — `text/uri-list` → `File.path` → `FileReader` for maximum compatibility
+- **Markdown auto-links** — Support `<https://...>` syntax as clickable links
+- **Plain-text URL detection** — Bare URLs in messages are auto-detected as clickable links
+- **Code block protection** — URLs inside code blocks and inline code are preserved (placeholder mechanism)
+- **Open in system browser** — All external links open in the default browser instead of navigating within the webview
 
-### 🔑 Gateway Token Setting
+### 🔌 Reconnect Status Feedback
 
-- **New setting** — `openclaw.gatewayToken`: set token directly in VS Code settings
-- **WSL friendly** — No need to share config files across Windows/WSL boundary
-- **Hot-reload** — Changing token or Gateway URL auto-reconnects without restart
-
-### 🪟 Windows WSL Connection Fix
-
-- **Auto-fallback** — When `localhost` connection fails, automatically retries `127.0.0.1`
-- **Solves WSL 2 edge cases** — DNS resolution issues with `localhost` on some Windows setups
-
-### 🔌 Connection Status UI
-
-- **Clickable status dot** — Click the green/red indicator for connection details
-- **Friendly errors** — Smart error classification (ECONNREFUSED, timeout, auth, etc.)
-- **Quick actions** — Reconnect, open settings, or open chat panel from the status popup
-- **Close chat** — New sidebar close button to reset and close the chat session
+- **Instant green light** — Status indicator turns green immediately after successful reconnect, error info cleared
+- **Failure update** — Error message updates in status popup on reconnect failure
 
 
 
@@ -307,37 +295,19 @@ VS Code 的 AI 编程助手，由 OpenClaw 驱动。
 - 🌍 **多语言** - 界面和 AI 输出完整国际化（zh-CN、en、ja、ko）
 - 🪟 **Windows 与 WSL 支持** - Windows/WSL 全兼容，自动回退机制
 
-## v0.2.8 新特性
+## v0.2.10 新特性
 
-### 📁 拖拽文件支持
+### 🔗 链接渲染优化
 
-- **全窗口拖放** — 拖拽文件到聊天面板任意位置，可视化蒙层提示
-- **多种来源** — VSCode 文件树、编辑器标签页、系统文件管理器（Finder/Explorer）
-- **智能兜底** — `text/uri-list` → `File.path` → `FileReader`，最大化兼容性
+- **Markdown 自动链接** — 支持 `<https://...>` 语法自动转为可点击链接
+- **纯文本 URL 检测** — 消息中未包裹的 URL 自动识别为可点击链接
+- **代码块保护** — 代码块和行内代码中的 URL 不会被错误转换（占位符机制）
+- **系统浏览器打开** — 所有外部链接点击后通过系统默认浏览器打开，而非 webview 内导航
 
-### 🔑 Gateway Token 设置
+### 🔌 重连状态反馈
 
-- **新增设置** — `openclaw.gatewayToken`：直接在 VS Code 设置中填写 Token
-- **WSL 友好** — 无需在 Windows/WSL 之间共享配置文件
-- **热重载** — 修改 Token 或 Gateway 地址后自动重连，无需重启
-
-### 🪟 Windows WSL 连接修复
-
-- **自动回退** — `localhost` 连接失败时自动尝试 `127.0.0.1`
-- **解决 WSL 2 问题** — 部分 Windows 环境下 `localhost` DNS 解析异常
-
-### 🔌 连接状态 UI
-
-- **可点击状态灯** — 点击绿灯/红灯查看连接详情
-- **友好错误提示** — 智能分类错误（ECONNREFUSED、超时、认证等）
-- **快捷操作** — 重新连接、打开设置、打开对话面板
-- **关闭对话** — 侧边栏新增关闭按钮，重置并关闭当前会话
-
-### 🌍 多语言 AI 输出
-
-**设置项：** `openclaw.aiOutputLanguage`
-- `auto` - 跟随系统语言（默认）
-- `zh-CN` / `en` / `ja` / `ko`
+- **重连成功推送绿灯** — 点击重连成功后，状态灯立即从红变绿，清除错误信息
+- **重连失败更新错误** — 重连失败时更新最新错误信息到状态弹窗
 
 ## 安装
 

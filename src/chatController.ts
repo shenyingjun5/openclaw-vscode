@@ -264,6 +264,12 @@ export class ChatController {
                 this._handleRejectAll(data.changeSetId);
                 break;
 
+            case 'openUrl':
+                if (data.url && typeof data.url === 'string') {
+                    vscode.env.openExternal(vscode.Uri.parse(data.url));
+                }
+                break;
+
             case 'openFile':
                 await this._handleOpenFile(data.filePath);
                 break;
@@ -275,8 +281,24 @@ export class ChatController {
             case 'reconnect':
                 try {
                     await this._gateway.reloadTokenAndReconnect();
+                    // 连接成功：推送绿灯状态，清除错误信息
+                    this._webview?.postMessage({
+                        type: 'connectionStatus',
+                        status: 'connected',
+                        mode: this._gateway.getMode(),
+                        url: this._gateway.getConnectedUrl(),
+                        lastError: ''
+                    });
                     vscode.window.showInformationMessage('招财: 重新连接成功');
                 } catch (err) {
+                    // 连接失败：推送红灯状态，展示最新错误
+                    this._webview?.postMessage({
+                        type: 'connectionStatus',
+                        status: 'disconnected',
+                        mode: this._gateway.getMode(),
+                        url: this._gateway.getConnectedUrl(),
+                        lastError: this._gateway.getLastError()
+                    });
                     vscode.window.showWarningMessage(`招财: 重新连接失败 - ${err instanceof Error ? err.message : err}`);
                 }
                 break;

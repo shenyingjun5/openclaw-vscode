@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../../OpenClawApp"
+		},
+		{
+			"path": "../../openclaw-hub"
+		},
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../openclaw"
+		}
+	],
+	"settings": {}
+}
