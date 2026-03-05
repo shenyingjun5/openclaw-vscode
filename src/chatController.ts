@@ -281,7 +281,7 @@ export class ChatController {
             case 'reconnect':
                 try {
                     await this._gateway.reloadTokenAndReconnect();
-                    // 连接成功：推送绿灯状态，清除错误信息
+                    // Connected: push green status, clear error
                     this._webview?.postMessage({
                         type: 'connectionStatus',
                         status: 'connected',
@@ -289,9 +289,9 @@ export class ChatController {
                         url: this._gateway.getConnectedUrl(),
                         lastError: ''
                     });
-                    vscode.window.showInformationMessage('招财: 重新连接成功');
+                    vscode.window.showInformationMessage('OpenClaw: Reconnected successfully');
                 } catch (err) {
-                    // 连接失败：推送红灯状态，展示最新错误
+                    // Failed: push red status, show latest error
                     this._webview?.postMessage({
                         type: 'connectionStatus',
                         status: 'disconnected',
@@ -299,7 +299,7 @@ export class ChatController {
                         url: this._gateway.getConnectedUrl(),
                         lastError: this._gateway.getLastError()
                     });
-                    vscode.window.showWarningMessage(`招财: 重新连接失败 - ${err instanceof Error ? err.message : err}`);
+                    vscode.window.showWarningMessage(`OpenClaw: Reconnect failed - ${err instanceof Error ? err.message : err}`);
                 }
                 break;
         }
@@ -353,12 +353,12 @@ export class ChatController {
     private async _handleSetModel(model: string) {
         try {
             await this._gateway.setSessionModel(this._sessionKey, model);
-            vscode.window.showInformationMessage(`模型已切换为: ${model}`);
+            vscode.window.showInformationMessage(`Model switched to: ${model}`);
 
-            // 重新发送上下文设置（语言 + 工作区）
+            // Resend context setup (language + workspace)
             await this._sessionManager.sendContextSetup(this._gateway, this._sessionKey);
         } catch (err: any) {
-            vscode.window.showErrorMessage(`模型切换失败: ${err.message || err}`);
+            vscode.window.showErrorMessage(`Model switch failed: ${err.message || err}`);
         }
     }
 
@@ -378,7 +378,7 @@ export class ChatController {
         try {
             await this._gateway.setSessionThinking(this._sessionKey, level);
         } catch (err: any) {
-            vscode.window.showErrorMessage(`思考深度设置失败: ${err.message || err}`);
+            vscode.window.showErrorMessage(`Thinking level setting failed: ${err.message || err}`);
         }
     }
 
@@ -461,11 +461,11 @@ export class ChatController {
         // Plan Mode 后缀
         let messageToSend = effectiveMessage;
 
-        // 空消息检查
+        // Empty message check
         if (!messageToSend.trim()) {
             this._webview?.postMessage({
                 type: 'error',
-                content: '消息内容为空',
+                content: 'Message content is empty',
                 context: 'send'
             });
             this._isSending = false;
@@ -485,7 +485,7 @@ export class ChatController {
                 const marker = isZh ? '---- 计划模式 ----' : '---- Plan Mode ----';
                 const body = customPrompt || (isZh
                     ? '⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败'
-                    : '⚠️ Do Not Execute - Plan Only\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say "execute" before calling tools\n\nViolation = Task failed');
+                    : '⚠️ Do Not Execute — Plan Only\n\nYou must:\n1. Output a plan only, do not call any tools\n2. List each step and its impact\n3. Wait for the user to say "execute" before calling tools\n\nViolation = task failed');
                 messageToSend += `\n\n${marker}\n${body}\n${marker}`;
             }
         }

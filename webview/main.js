@@ -427,7 +427,7 @@
             // 渲染 thinking 折叠区域
             if (thinking) {
                 const thinkingId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-                html += `<details class="thinking-block"><summary class="thinking-summary">🧠 ${locale === 'zh' ? '思考过程' : 'Thinking'}</summary><div class="thinking-content">${renderMarkdown(thinking)}</div></details>`;
+                html += `<details class="thinking-block"><summary class="thinking-summary">🧠 ${locale === 'zh' ? '思考过程' : 'Thinking process'}</summary><div class="thinking-content">${renderMarkdown(thinking)}</div></details>`;
             }
             html += renderMarkdown(content);
             div.innerHTML = html;
@@ -498,7 +498,7 @@
 
     // Update send button state
     /**
-     * 是否正在忙（发送中 或 等待 AI 回复），对齐 webchat 的 Qr 函数
+     * Whether the chat is busy (sending or waiting for AI reply)
      */
     function isBusy() {
         return isSending || !!chatRunId;
@@ -614,7 +614,7 @@
 
         queueList.innerHTML = messageQueue.map(item => {
             const hasAttachments = item.attachments && item.attachments.length > 0;
-            const displayText = item.text || (hasAttachments ? `📎 ${item.attachments.length} 个附件` : '');
+            const displayText = item.text || (hasAttachments ? `📎 ${item.attachments.length} attachment(s)` : '');
 
             return `
                 <div class="chat-queue__item" data-queue-id="${item.id}">
@@ -719,13 +719,13 @@
         if (status === 'connected') {
             statusIndicator.classList.add('connected');
             const modeLabel = connectionMode === 'cli' ? 'CLI' : 'WebSocket';
-            statusIndicator.title = 'Gateway 已连接 (' + modeLabel + ')';
+            statusIndicator.title = 'Gateway connected (' + modeLabel + ')';
         } else if (status === 'connecting') {
             statusIndicator.classList.add('connecting');
-            statusIndicator.title = '正在连接到 Gateway...';
+            statusIndicator.title = 'Connecting to Gateway...';
         } else {
             statusIndicator.classList.add('disconnected');
-            statusIndicator.title = 'Gateway 未连接 - 点击查看详情';
+            statusIndicator.title = 'Gateway disconnected - click for details';
         }
         // 连接状态变化时更新刷新按钮
         updateRefreshButtonDisabled();
@@ -812,51 +812,51 @@
     function parseErrorToMessage(error, context) {
         const errorStr = String(error.message || error);
 
-        // 1. 用户停止
+        // 1. User stopped
         if (context === 'user_stop' ||
             (errorStr.includes('exited with code 1') && context === 'stop')) {
             return {
                 type: 'system',
                 icon: '⏹️',
                 color: 'gray',
-                text: '已停止生成',
+                text: 'Generation stopped',
                 autoHide: true
             };
         }
 
-        // 2. 连接错误
+        // 2. Connection refused
         if (errorStr.includes('ECONNREFUSED') || errorStr.includes('connect ECONNREFUSED')) {
             return {
                 type: 'error',
                 icon: '❌',
                 color: 'red',
-                text: `无法连接到 Gateway
+                text: `Cannot connect to Gateway
 
-可能原因：
-• Gateway 未启动
-• 端口 18789 被占用
+Possible causes:
+• Gateway is not running
+• Port 18789 is in use
 
-请执行：
+Run:
 openclaw gateway start`
             };
         }
 
-        // 3. 超时
+        // 3. Timeout
         if (errorStr.includes('ETIMEDOUT') || errorStr.includes('timeout') ||
             errorStr.includes('timed out')) {
             return {
                 type: 'warning',
                 icon: '⚠️',
                 color: 'yellow',
-                text: `请求超时
+                text: `Request timed out
 
-网络响应过慢，请：
-• 检查网络连接
-• 稍后重试`
+The network is too slow. Please:
+• Check your network connection
+• Try again later`
             };
         }
 
-        // 3.5 认证失败（匹配 "Error: 401 Unauthorized" 等）
+        // 3.5 Auth failure (401 Unauthorized, etc.)
         if (errorStr.includes('401') ||
             errorStr.includes('Unauthorized') ||
             errorStr.includes('invalid_api_key') ||
@@ -865,16 +865,16 @@ openclaw gateway start`
                 type: 'error',
                 icon: '🔑',
                 color: 'red',
-                text: `API 认证失败
+                text: `API authentication failed
 
-请检查：
-• API Key 是否正确配置
-• API Key 是否已过期
-• 在 openclaw.yaml 中确认 provider 设置`
+Please check:
+• API key is correctly configured
+• API key has not expired
+• Provider settings in openclaw.yaml`
             };
         }
 
-        // 3.6 余额不足
+        // 3.6 Insufficient quota / balance
         if (errorStr.includes('insufficient_quota') ||
             errorStr.includes('billing') ||
             errorStr.includes('balance') ||
@@ -883,33 +883,33 @@ openclaw gateway start`
                 type: 'warning',
                 icon: '💰',
                 color: 'yellow',
-                text: `API 余额不足
+                text: `Insufficient API balance
 
-请检查：
-• 充值 API 账户余额
-• 或切换到其他模型/提供商`
+Please:
+• Top up your API account balance
+• Or switch to a different model/provider`
             };
         }
 
-        // 4. WebSocket 连接错误（排除发送层面的错误）
-        if (errorStr.includes('WebSocket') && errorStr.includes('连接')) {
+        // 4. WebSocket connection error
+        if (errorStr.includes('WebSocket') && errorStr.includes('connect')) {
             return {
                 type: 'error',
                 icon: '❌',
                 color: 'red',
-                text: `WebSocket 连接失败
+                text: `WebSocket connection failed
 
-可能原因：
-• Gateway 版本过低
-• 防火墙拦截
+Possible causes:
+• Gateway version is too old
+• Firewall is blocking the connection
 
-请尝试：
-• 升级 OpenClaw: npm update -g openclaw
-• 检查防火墙设置`
+Try:
+• Upgrade OpenClaw: npm update -g openclaw
+• Check firewall settings`
             };
         }
 
-        // 5. Token / 上下文超限（匹配 Gateway 返回的 LLM 原始异常字符串）
+        // 5. Token / context length exceeded
         if (errorStr.includes('context_length') ||
             errorStr.includes('context length') ||
             errorStr.includes('maximum context') ||
@@ -922,38 +922,38 @@ openclaw gateway start`
                 type: 'tip',
                 icon: '💡',
                 color: 'yellow',
-                text: `对话上下文过长，已超出模型限制
+                text: `Context is too long — model limit exceeded
 
-请尝试：
-1. 开启新会话
-2. 或切换到上下文窗口更大的模型`
+Try:
+1. Start a new session
+2. Or switch to a model with a larger context window`
             };
         }
 
-        // 6. 模型不可用
+        // 6. Model unavailable
         if (errorStr.includes('model not available') ||
             errorStr.includes('model unavailable') ||
             errorStr.includes('model_not_found') ||
             errorStr.includes('model not found') ||
             errorStr.includes('does not exist')) {
             const modelMatch = errorStr.match(/model[:\s]+([a-z0-9-]+)/i);
-            const modelName = modelMatch ? modelMatch[1] : '当前模型';
+            const modelName = modelMatch ? modelMatch[1] : 'The selected model';
 
             return {
                 type: 'tip',
                 icon: '💡',
                 color: 'yellow',
-                text: `${modelName} 暂时不可用
+                text: `${modelName} is temporarily unavailable
 
-可能原因：
-• 服务器负载过高
-• 模型维护中
+Possible causes:
+• Server is under high load
+• Model is under maintenance
 
-建议：切换到其他模型（如 gpt-4o-mini）`
+Suggestion: switch to another model (e.g. gpt-4o-mini)`
             };
         }
 
-        // 7. 频率限制（匹配 "Error: 429 Rate limit exceeded" 等）
+        // 7. Rate limit (429)
         if (errorStr.includes('rate limit') ||
             errorStr.includes('rate_limit') ||
             errorStr.includes('too many requests') ||
@@ -962,62 +962,62 @@ openclaw gateway start`
                 type: 'warning',
                 icon: '⚠️',
                 color: 'yellow',
-                text: `请求过于频繁
+                text: `Too many requests
 
-已达到速率限制，请：
-• 等待 30 秒后重试
-• 或切换到其他模型`
+Rate limit reached. Please:
+• Wait 30 seconds and try again
+• Or switch to a different model`
             };
         }
 
-        // 8. 命令未找到
+        // 8. Command not found
         if (errorStr.includes('command not found') ||
             errorStr.includes('not recognized')) {
             return {
                 type: 'error',
                 icon: '❌',
                 color: 'red',
-                text: `OpenClaw CLI 未找到
+                text: `OpenClaw CLI not found
 
-请安装：
+Install it with:
 npm install -g openclaw
 
-或在 VSCode 设置中配置 openclaw 路径：
-设置 → OpenClaw → Openclaw Path`
+Or configure the openclaw path in VSCode settings:
+Settings → OpenClaw → Openclaw Path`
             };
         }
 
-        // 9. 权限错误
+        // 9. Permission error
         if (errorStr.includes('EACCES') ||
             errorStr.includes('permission denied')) {
             return {
                 type: 'error',
                 icon: '❌',
                 color: 'red',
-                text: `权限不足
+                text: `Permission denied
 
-无法访问文件或执行命令，请：
-• 检查文件权限
-• 在 macOS/Linux 使用: sudo npm install -g openclaw
-• 在 Windows 使用管理员权限`
+Cannot access file or execute command. Please:
+• Check file permissions
+• On macOS/Linux: sudo npm install -g openclaw
+• On Windows: run as Administrator`
             };
         }
 
-        // 10. 网络错误
+        // 10. DNS / network error
         if (errorStr.includes('ENOTFOUND')) {
             return {
                 type: 'error',
                 icon: '❌',
                 color: 'red',
-                text: `网络错误
+                text: `Network error
 
-无法解析服务器地址，请：
-• 检查网络连接
-• 检查 Gateway URL 配置（设置 → OpenClaw → Gateway URL）`
+Cannot resolve server address. Please:
+• Check your network connection
+• Check Gateway URL (Settings → OpenClaw → Gateway URL)`
             };
         }
 
-        // 11. 未知错误
+        // 11. Unknown error
         const shortError = errorStr.length > 100 ?
             errorStr.substring(0, 100) + '...' : errorStr;
 
@@ -1025,13 +1025,13 @@ npm install -g openclaw
             type: 'error',
             icon: '❌',
             color: 'red',
-            text: `发生错误
+            text: `An error occurred
 
 ${shortError}
 
-请尝试：
-• 刷新页面重试
-• 查看 OpenClaw 日志: openclaw logs`
+Try:
+• Refresh and retry
+• View OpenClaw logs: openclaw logs`
         };
     }
 
@@ -1105,7 +1105,7 @@ ${shortError}
 
         if (fileRefs.length > 0 || references.length > 0) {
             const allRefs = [...fileRefs, ...references];
-            fullMessage = `[引用文件 - 请用 read 工具读取后处理]\n${allRefs.join('\n')}\n\n${fullMessage}`;
+            fullMessage = `[Referenced files - please read with the read tool before processing]\n${allRefs.join('\n')}\n\n${fullMessage}`;
         }
 
         for (const img of images) {
@@ -1115,7 +1115,7 @@ ${shortError}
         }
 
         // Show user message with attachments
-        addMessage('user', text || '[附件]', atts.length > 0 ? [...atts] : null);
+        addMessage('user', text || '[attachment]', atts.length > 0 ? [...atts] : null);
 
         // Clear input if called from sendMessage (not from queue)
         if (atts === attachments) {
