@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [0.2.11] - 2026-03-07
+
+### Fixed - 修复 🐛
+
+#### Dialog Mode 权限修复 🔐
+- **添加缺失的 scopes** — WebSocket 握手时显式请求 `operator.read` 和 `operator.write` scope，修复 "missing scope: operator.write" 错误
+- **修正 client.id** — 从 `gateway-client` 改为 `openclaw-control-ui`，符合 Gateway 枚举值要求
+- **添加 Origin header** — WebSocket 连接时添加 Origin header，匹配 Gateway 的 allowedOrigins 配置
+- **Add missing scopes** — Explicitly request `operator.read` and `operator.write` scopes during WebSocket handshake, fixing "missing scope: operator.write" error
+- **Correct client.id** — Changed from `gateway-client` to `openclaw-control-ui` to match Gateway enum values
+- **Add Origin header** — Add Origin header to WebSocket connection to match Gateway's allowedOrigins config
+
+**Fixes:** [#1](https://github.com/shenyingjun5/openclaw-vscode/issues/1)
+
 ## [0.2.10] - 2026-02-10
 
 ### Fixed - 修复 🐛
