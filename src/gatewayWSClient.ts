@@ -99,7 +99,13 @@ export class GatewayWSClient {
     private async _doConnect(): Promise<void> {
         return new Promise((resolve, reject) => {
             const wsUrl = this.gatewayUrl.replace(/^http/, 'ws');
-            this.ws = new WebSocket(wsUrl);
+            const originUrl = this.gatewayUrl.replace(/\/$/, '');
+            this.ws = new WebSocket(wsUrl, {
+                headers: {
+                    // 使用 this.gatewayUrl 作为 Origin，确保与 allowedOrigins 配置一致
+                    'Origin': originUrl
+                }
+            });
 
             const timeout = setTimeout(() => {
                 if (!this.connected) {
@@ -124,13 +130,13 @@ export class GatewayWSClient {
                             minProtocol: 3,
                             maxProtocol: 3,
                             client: {
-                                id: 'gateway-client',
+                                id: 'openclaw-control-ui',
                                 version: extVersion,
                                 platform: process.platform,
                                 mode: 'ui'
                             },
                             role: 'operator',
-                            scopes: ['operator.admin'],
+                            scopes: ['operator.admin', 'operator.read', 'operator.write'],
                             locale: vscode.env.language || 'en-US',
                             userAgent: `openclaw-vscode/${extVersion}`
                         }
@@ -148,7 +154,7 @@ export class GatewayWSClient {
                             if (msg.type === 'res' && msg.id === connectReq.id) {
                                 this.ws!.off('message', listener);
                                 clearTimeout(timeout);
-                                
+
                                 if (msg.ok) {
                                     this.connected = true;
                                     console.log('[GatewayWS] Connected successfully');
