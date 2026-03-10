@@ -1,5 +1,49 @@
 # CHANGELOG
 
+## [0.2.19] - 2026-03-10
+
+### Added - 新增 ✨
+
+#### Agent 管理功能 🤖
+- **Agent 选择器** — 在聊天面板顶部添加 Agent 下拉选择器，支持快速切换 Agent
+- **Agent 创建面板** — 提供可视化创建界面，支持 6 种预设角色模板（全栈、前端、后端、DevOps、测试、架构师）+ 自定义角色
+- **Agent 管理** — 支持创建、切换、删除 Agent 操作
+- **项目本地配置** — Agent 配置保存到项目 `.openclaw/agent` 文件，支持团队共享
+- **Agent selector** — Add Agent dropdown selector in chat panel for quick switching
+- **Agent creation panel** — Visual creation interface with 6 preset role templates (fullstack, frontend, backend, devops, tester, architect) + custom role
+- **Agent management** — Support create, switch, delete Agent operations
+- **Project-local config** — Agent config saved to project `.openclaw/agent` file for team sharing
+
+#### 角色模板系统 📝
+- **预设角色模板** — 提供 6 种专业角色的 IDENTITY.md 和 SOUL.md 模板
+- **自定义角色** — 支持用户自定义角色名称和描述
+- **Emoji 可选** — Emoji 字段改为可选，默认使用 🤖
+- **Preset role templates** — Provide IDENTITY.md and SOUL.md templates for 6 professional roles
+- **Custom role** — Support user-defined role name and description
+- **Optional emoji** — Emoji field is now optional, defaults to 🤖
+
+### Fixed - 修复 🐛
+
+#### 思考指示器修复 🔄
+- **持久化显示** — 修复思考指示器在自动刷新时消失的问题，在 `waitingReply` 事件中重新显示
+- **Persistent display** — Fix thinking indicator disappearing on auto-refresh by re-showing in `waitingReply` event
+
+#### Agent 创建优化 🔧
+- **RPC + 文件系统混合方案** — RPC 创建 Agent 后使用文件系统写入 IDENTITY.md 和 SOUL.md（因 `agents.files.set` RPC 不可用）
+- **错误处理改进** — 检测 Agent 是否已创建，避免重复创建导致的错误
+- **降级策略** — RPC 失败时自动降级到 CLI 命令
+- **RPC + filesystem hybrid** — Use filesystem to write IDENTITY.md and SOUL.md after RPC agent creation (as `agents.files.set` RPC is unavailable)
+- **Error handling improvement** — Detect if agent already exists to avoid duplicate creation errors
+- **Fallback strategy** — Auto-fallback to CLI command when RPC fails
+
+### Changed - 修改 🔄
+
+#### WebSocket RPC 改进 🌐
+- **统一连接配置** — 使用 `gateway-client` 作为 client.id，支持 token 认证
+- **RPC 优先策略** — Agent 创建优先使用 RPC API，CLI 作为兜底
+- **Unified connection config** — Use `gateway-client` as client.id with token authentication
+- **RPC-first strategy** — Prioritize RPC API for agent creation, CLI as fallback
+
 ## [0.2.11] - 2026-03-07
 
 ### Fixed - 修复 🐛
