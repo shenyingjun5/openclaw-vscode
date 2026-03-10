@@ -5,6 +5,9 @@ import { GatewayClient } from './gateway';
 import { DiffProvider } from './diffProvider';
 import { LanguageManager } from './languageManager';
 import { ChangeManager } from './changeManager';
+import { CreateAgentPanel } from './createAgentPanel';
+import { AgentManager } from './agentManager';
+import { ProjectMemoryManager } from './projectMemoryManager';
 
 let gatewayClient: GatewayClient;
 let chatProvider: ChatViewProvider;
@@ -25,8 +28,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     gatewayClient = new GatewayClient(gatewayUrl, openclawPath || undefined);
 
+    // 初始化 AgentManager
+    const agentManager = new AgentManager(gatewayClient);
+
+    // 初始化 ProjectMemoryManager
+    const projectMemoryManager = ProjectMemoryManager.getInstance();
+
+    // 自动检查并初始化项目记忆
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        const initialized = projectMemoryManager.tryInitialize();
+        if (initialized) {
+            console.log('[OpenClaw] 项目记忆已初始化');
+        }
+    }
+
     // 注册 Chat View Provider（侧边栏）
-    chatProvider = new ChatViewProvider(context.extensionUri, gatewayClient);
+    chatProvider = new ChatViewProvider(context.extensionUri, gatewayClient, context);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider('openclaw.chatView', chatProvider)
     );
@@ -34,7 +51,53 @@ export function activate(context: vscode.ExtensionContext) {
     // 注册命令
     context.subscriptions.push(
         vscode.commands.registerCommand('openclaw.openChatPanel', () => {
-            ChatPanel.createOrShow(context.extensionUri, gatewayClient);
+            ChatPanel.createOrShow(context.extensionUri, gatewayClient, context);
+        }),
+        vscode.commands.registerCommand('openclaw.createAgent', () => {
+            CreateAgentPanel.createOrShow(context.extensionUri, agentManager);
+        }),
+        vscode.commands.registerCommand('openclaw.updateProjectProgress', async () => {
+            const content = await vscode.window.showInputBox({
+                prompt: '输入今天的进展',
+                placeHolder: '例如: ✅ [完成] 实现创建 Agent Webview'
+            });
+            
+            if (content) {
+                try {
+                    await projectMemoryManager.updateProgress(content);
+                    vscode.window.showInformationMessage('项目进展已更新！');
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`更新失败: ${err.message}`);
+                }
+            }
+        }),
+        vscode.commands.registerCommand('openclaw.openProjectMemory', async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                vscode.window.showErrorMessage('没有打开的工作区');
+                return;
+            }
+
+            const items = [
+                { label: '$(book) CONTEXT.md', description: '项目快速入门', file: 'CONTEXT.md' },
+                { label: '$(file-text) PROJECT.md', description: '项目概述', file: 'PROJECT.md' },
+                { label: '$(graph) PROGRESS.md', description: '项目进展', file: 'PROGRESS.md' },
+                { label: '$(archive) MEMORY.md', description: '项目记忆', file: 'MEMORY.md' },
+                { label: '$(law) DECISIONS.md', description: '技术决策', file: 'DECISIONS.md' },
+                { label: '$(checklist) TODO.md', description: '待办事项', file: 'TODO.md' }
+            ];
+
+            const selected = await vscode.window.showQuickPick(items, {
+                placeHolder: '选择要打开的项目记忆文件'
+            });
+
+            if (selected) {
+                const filePath = vscode.Uri.file(
+                    workspaceFolder.uri.fsPath + '/.openclaw/' + selected.file
+                );
+                const doc = await vscode.workspace.openTextDocument(filePath);
+                await vscode.window.showTextDocument(doc);
+            }
         }),
         vscode.commands.registerCommand('openclaw.sendSelection', () => chatProvider.sendSelection()),
         vscode.commands.registerCommand('openclaw.sendFile', () => chatProvider.sendFile()),

@@ -62,7 +62,7 @@ export class ChatPanel {
     private readonly _controller: ChatController;
     private _disposables: vscode.Disposable[] = [];
 
-    public static createOrShow(extensionUri: vscode.Uri, gateway: GatewayClient) {
+    public static createOrShow(extensionUri: vscode.Uri, gateway: GatewayClient, context: vscode.ExtensionContext) {
         const column = vscode.ViewColumn.Beside;
         const pool = PanelSessionPool.getInstance();
 
@@ -91,7 +91,7 @@ export class ChatPanel {
             }
         );
 
-        const chatPanel = new ChatPanel(panel, extensionUri, gateway, panelId);
+        const chatPanel = new ChatPanel(panel, extensionUri, gateway, panelId, context);
         ChatPanel.panels.set(panelId, chatPanel);
     }
 
@@ -99,7 +99,8 @@ export class ChatPanel {
         panel: vscode.WebviewPanel,
         extensionUri: vscode.Uri,
         gateway: GatewayClient,
-        panelId: number
+        panelId: number,
+        context: vscode.ExtensionContext
     ) {
         this._panel = panel;
         this._extensionUri = extensionUri;
@@ -112,13 +113,18 @@ export class ChatPanel {
 
         // 初始化 SessionManager 和 Controller
         const sessionManager = new ChatSessionManager(extensionUri);
-        this._controller = new ChatController(extensionUri, gateway, sessionManager, sessionKey);
+        this._controller = new ChatController(extensionUri, gateway, sessionManager, sessionKey, context, `panel-${panelId}`);
 
         // 绑定 webview
         this._controller.setWebview(new PanelAdapter(panel));
 
         // 自动扫描项目
         this._controller.sessionManager.initProjectConfig();
+
+        // 初始化 Agent（从 Workspace 关联恢复）
+        this._controller.initializeAgent().catch(err => {
+            console.error('[ChatPanel] Failed to initialize agent:', err);
+        });
 
         // 设置 webview HTML
         this._panel.webview.html = this._getHtmlContent();

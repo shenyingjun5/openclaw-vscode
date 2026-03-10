@@ -39,7 +39,7 @@ export class ChatSessionManager {
 
     constructor(
         private readonly _extensionUri: vscode.Uri
-    ) {}
+    ) { }
 
     /**
      * 获取工作区目录
@@ -291,7 +291,7 @@ export class ChatSessionManager {
             const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
             const buffer = Buffer.from(base64, 'base64');
             require('fs').writeFileSync(filePath, buffer);
-            
+
             return { name, path: filePath };
         } catch (err: any) {
             vscode.window.showErrorMessage(`Save image failed: ${err.message}`);
@@ -423,7 +423,7 @@ export class ChatSessionManager {
                 // 跳过 toolResult 消息
                 const role = (msg.role || '').toLowerCase();
                 if (role === 'toolresult' || role === 'tool_result' || role === 'tool') continue;
-                
+
                 // 字符串格式兜底
                 content = String(content || '');
                 content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
@@ -446,10 +446,11 @@ export class ChatSessionManager {
                 }
 
                 content = content.trim();
-                
+
                 // 过滤掉上下文设置相关的系统消息和回复
                 const isSetupMessage = content.includes('[System Setup - No reply needed]') ||
                     content.includes('[系统设置 - 无需回复]') ||
+                    content.includes('[系统设置 - 项目背景，无需回复]') ||
                     content.includes('Please confirm with "Language settings updated"');
                 if (isSetupMessage) {
                     skipNextAssistant = true;

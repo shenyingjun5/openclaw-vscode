@@ -780,6 +780,96 @@ body {
     opacity: 1;
 }
 
+/* Agent 选择器特定样式 */
+.agent-dropdown {
+    margin-right: 4px;
+}
+
+.agent-emoji {
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.dropdown-separator {
+    height: 1px;
+    background: var(--vscode-panel-border);
+    margin: 4px 0;
+}
+
+.dropdown-action {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: var(--font-size-small);
+    color: var(--vscode-foreground);
+    cursor: pointer;
+}
+
+.dropdown-action:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.dropdown-action span:first-child {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.agent-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: var(--font-size-small);
+    cursor: pointer;
+}
+
+.agent-option:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.agent-option.selected {
+    background: var(--vscode-list-activeSelectionBackground);
+}
+
+.agent-option-check {
+    width: 16px;
+    font-size: 12px;
+    flex-shrink: 0;
+    opacity: 0;
+}
+
+.agent-option.selected .agent-option-check {
+    opacity: 1;
+}
+
+.agent-option-emoji {
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.agent-option-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.agent-option-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-option-id {
+    font-size: 11px;
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Send button - three states */
 .send-btn {
     width: 32px;

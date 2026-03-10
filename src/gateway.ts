@@ -1105,4 +1105,14 @@ export class GatewayClient {
         }
         return null;
     }
+
+    /**
+     * 通用 RPC 方法（用于 Agent 管理等）
+     */
+    public async sendRpc(method: string, params: any): Promise<any> {
+        if (this._mode === 'ws' && this._wsClient) {
+            return await this._wsClient.sendRpc(method, params);
+        }
+        throw new Error('WebSocket not connected. Cannot send RPC.');
+    }
 }

@@ -168,6 +168,14 @@
     const modelTitle = document.getElementById('modelTitle');
     const modelPopup = document.getElementById('modelPopup');
     const modelOptionsEl = document.getElementById('modelOptions');
+    const agentDropdown = document.getElementById('agentDropdown');
+    const agentTrigger = document.getElementById('agentTrigger');
+    const agentLabel = document.getElementById('agentLabel');
+    const agentEmoji = document.getElementById('agentEmoji');
+    const agentTitle = document.getElementById('agentTitle');
+    const agentPopup = document.getElementById('agentPopup');
+    const agentOptionsEl = document.getElementById('agentOptions');
+    const createAgentAction = document.getElementById('createAgentAction');
     const thinkDropdown = document.getElementById('thinkDropdown');
     const thinkTrigger = document.getElementById('thinkTrigger');
     const thinkLabel = document.getElementById('thinkLabel');
@@ -385,20 +393,6 @@
     }
 
     /**
-     * 渲染 AI 头像元素
-     * avatar 可能是：URL (http/https)、emoji、字母
-     */
-    function renderAvatarElement() {
-        const av = assistantAvatar || '';
-        if (av.startsWith('http://') || av.startsWith('https://')) {
-            return `<img class="assistant-avatar" src="${escapeHtml(av)}" alt="">`;
-        }
-        // emoji 或字母 — 用圆形背景
-        const display = av || (assistantName ? assistantName.charAt(0) : '🤖');
-        return `<span class="assistant-avatar assistant-avatar-text">${escapeHtml(display)}</span>`;
-    }
-
-    /**
      * Add message with optional attachments and thinking
      * @param {string} role
      * @param {string} content
@@ -415,15 +409,6 @@
 
         if (role === 'assistant') {
             let html = '';
-            // 头像行（仅在分组首条显示）
-            if (showAvatar && (assistantName || assistantAvatar)) {
-                html += `<div class="assistant-header">`;
-                html += renderAvatarElement();
-                if (assistantName) {
-                    html += `<span class="assistant-name">${escapeHtml(assistantName)}</span>`;
-                }
-                html += `</div>`;
-            }
             // 渲染 thinking 折叠区域
             if (thinking) {
                 const thinkingId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
@@ -1591,6 +1576,14 @@ ${shortError}
         vscode.postMessage({ type: 'openSettings' });
     });
 
+    // Project Memory button
+    const projectMemoryBtn = document.getElementById('projectMemoryBtn');
+    if (projectMemoryBtn) {
+        projectMemoryBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openProjectMemory' });
+        });
+    }
+
     // ========== Custom Dropdowns ==========
 
     let openDropdownId = null; // 当前打开的 dropdown id
@@ -1741,7 +1734,69 @@ ${shortError}
         renderModeDropdown();
         renderModelDropdown();
         renderThinkDropdown();
+        renderAgentDropdown();
     }
+
+    // --- Agent dropdown ---
+    let currentAgentId = 'main';
+    let agentsList = [];
+
+    agentTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDropdown('agent');
+        // 请求 Agent 列表
+        vscode.postMessage({ type: 'getAgents' });
+    });
+
+    function renderAgentDropdown() {
+        agentTitle.textContent = 'Select Agent';
+
+        if (!agentsList || agentsList.length === 0) {
+            agentLabel.textContent = 'main';
+            agentEmoji.textContent = '🤖';
+            agentOptionsEl.innerHTML = '';
+            return;
+        }
+
+        const current = agentsList.find(a => a.id === currentAgentId);
+        if (current) {
+            agentLabel.textContent = current.name;
+            agentEmoji.textContent = current.emoji;
+        }
+
+        agentOptionsEl.innerHTML = agentsList.map(agent => {
+            const isSelected = agent.id === currentAgentId;
+            return `<div class="agent-option${isSelected ? ' selected' : ''}" data-agent-id="${escapeHtml(agent.id)}">
+                <span class="agent-option-check">✓</span>
+                <span class="agent-option-emoji">${escapeHtml(agent.emoji)}</span>
+                <div class="agent-option-info">
+                    <div class="agent-option-name">${escapeHtml(agent.name)}</div>
+                    <div class="agent-option-id">${escapeHtml(agent.id)}</div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    agentOptionsEl.addEventListener('click', (e) => {
+        const option = e.target.closest('.agent-option');
+        if (!option) return;
+
+        const agentId = option.dataset.agentId;
+        if (agentId === currentAgentId) {
+            closeAllDropdowns();
+            return;
+        }
+
+        // 切换 Agent
+        vscode.postMessage({ type: 'switchAgent', agentId: agentId });
+        closeAllDropdowns();
+    });
+
+    createAgentAction.addEventListener('click', () => {
+        closeAllDropdowns();
+        // 打开创建 Agent 对话框
+        vscode.postMessage({ type: 'createAgent', config: null });
+    });
 
     // 初始化
     renderDropdowns();
@@ -1823,6 +1878,7 @@ ${shortError}
                 isSending = false;
                 chatRunId = message.runId || true;
                 updateSendButtonState();
+                showThinking(); // 确保显示"正在思考中"提示
                 startAutoRefresh(autoRefreshInterval);
                 break;
 
@@ -1907,6 +1963,9 @@ ${shortError}
                     const scrollState = window._refreshScrollState || { wasAtBottom: true };
                     window._refreshScrollState = null;
 
+                    // 保存 thinking indicator 状态（避免被 innerHTML 清空后丢失）
+                    const hadThinking = !!document.getElementById('thinkingIndicator');
+
                     messages.innerHTML = '';
                     let prevRole = '';
                     message.messages.forEach(msg => {
@@ -1924,8 +1983,8 @@ ${shortError}
                         }
                     });
 
-                    // 如果仍处于忙碌状态，重新显示 thinking indicator
-                    if (isBusy()) {
+                    // 恢复 thinking indicator（无论 isBusy 状态，只要之前存在就恢复）
+                    if (hadThinking || isBusy()) {
                         showThinking();
                     }
 
@@ -1935,6 +1994,45 @@ ${shortError}
                             scrollToBottom();
                         }
                     });
+                }
+                break;
+
+            case 'projectMemoryLoaded':
+                // 显示项目记忆加载提示
+                if (message.hasMemory && message.projectName) {
+                    // 显示项目记忆按钮
+                    if (projectMemoryBtn) {
+                        projectMemoryBtn.style.display = 'block';
+                        projectMemoryBtn.title = `项目记忆：${message.projectName}`;
+                    }
+
+                    // 在聊天区域顶部显示一个提示
+                    const hint = document.createElement('div');
+                    hint.className = 'system-hint';
+                    hint.style.cssText = `
+                        padding: 8px 12px;
+                        margin: 8px 0;
+                        background-color: var(--vscode-inputValidation-infoBackground);
+                        border-left: 3px solid var(--vscode-inputValidation-infoBorder);
+                        color: var(--vscode-inputValidation-infoForeground);
+                        font-size: 12px;
+                        border-radius: 4px;
+                    `;
+                    hint.textContent = `📚 已加载项目记忆：${message.projectName}`;
+
+                    // 插入到消息列表的开头
+                    if (messages.firstChild) {
+                        messages.insertBefore(hint, messages.firstChild);
+                    } else {
+                        messages.appendChild(hint);
+                    }
+
+                    // 3秒后自动消失
+                    setTimeout(() => {
+                        hint.style.transition = 'opacity 0.5s';
+                        hint.style.opacity = '0';
+                        setTimeout(() => hint.remove(), 500);
+                    }, 3000);
                 }
                 break;
 
@@ -2006,6 +2104,24 @@ ${shortError}
                 assistantAvatar = message.avatar || '';
                 break;
 
+            case 'agentsList':
+                // Agent 列表
+                agentsList = message.agents || [];
+                currentAgentId = message.currentAgentId || 'main';
+                renderAgentDropdown();
+                break;
+
+            case 'agentSwitched':
+                // Agent 切换成功
+                currentAgentId = message.agentId;
+                renderAgentDropdown();
+                // 显示切换提示
+                const agent = agentsList.find(a => a.id === message.agentId);
+                if (agent) {
+                    showSystemNotification(`Switched to agent: ${agent.emoji} ${agent.name}`, 3000);
+                }
+                break;
+
             case 'systemNotification':
                 showSystemNotification(message.message, message.timeout);
                 break;
@@ -2058,52 +2174,51 @@ ${shortError}
         }, 5000);
     }
 
+    // ========== 变更卡片渲染 ==========
+
+    function renderChangeCard(changeSet) {
+        if (!changeSet || !changeSet.files || changeSet.files.length === 0) {
+            return;
+        }
+
+        // 创建变更卡片实例
+        const card = new ChangeCard(changeSet, vscode);
+        const cardElement = card.render();
+
+        // 添加到消息容器
+        messages.appendChild(cardElement);
+
+        // 滚动到底部
+        setTimeout(() => {
+            messages.scrollTop = messages.scrollHeight;
+        }, 100);
+    }
+
+    function showSystemNotification(text, timeout) {
+        const notif = document.createElement('div');
+        notif.className = 'system-notification';
+        notif.textContent = text;
+        document.body.appendChild(notif);
+
+        // Trigger reflow
+        void notif.offsetHeight;
+        notif.classList.add('show');
+
+        setTimeout(() => {
+            notif.classList.remove('show');
+            setTimeout(() => notif.remove(), 300);
+        }, timeout || 2000);
+    }
+
+    // ========== 初始化 ==========
+
     // Initialize
     applyI18n();
     updateSendButtonState();
     vscode.postMessage({ type: 'ready' });
-})();
 
-function showSystemNotification(text, timeout) {
-    const notif = document.createElement('div');
-    notif.className = 'system-notification';
-    notif.textContent = text;
-    document.body.appendChild(notif);
-
-    // Trigger reflow
-    void notif.offsetHeight;
-    notif.classList.add('show');
-
+    // 页面加载完成后请求自动刷新配置
     setTimeout(() => {
-        notif.classList.remove('show');
-        setTimeout(() => notif.remove(), 300);
-    }, timeout || 2000);
-}
-
-// ========== 变更卡片渲染 ==========
-
-function renderChangeCard(changeSet) {
-    if (!changeSet || !changeSet.files || changeSet.files.length === 0) {
-        return;
-    }
-
-    // 创建变更卡片实例
-    const card = new ChangeCard(changeSet, vscode);
-    const cardElement = card.render();
-
-    // 添加到消息容器
-    messages.appendChild(cardElement);
-
-    // 滚动到底部
-    setTimeout(() => {
-        messages.scrollTop = messages.scrollHeight;
+        vscode.postMessage({ type: 'getAutoRefreshInterval' });
     }, 100);
-}
-
-// ========== 初始化 ==========
-
-// 页面加载完成后初始化
-setTimeout(() => {
-    // 请求自动刷新配置（连接状态会在 ready 时自动建立）
-    vscode.postMessage({ type: 'getAutoRefreshInterval' });
-}, 100);
+})();

@@ -60,6 +60,12 @@
                   title="Gateway 未连接"></span>
         </div>
         <div class="header-actions">
+            <button class="icon-btn" id="projectMemoryBtn" title="项目记忆" style="display: none;">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M3 2.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-11zm1 0v11h8v-11H4z"/>
+                    <path d="M5 4h6v1H5V4zm0 2h6v1H5V6zm0 2h6v1H5V8zm0 2h4v1H5v-1z"/>
+                </svg>
+            </button>
             <button class="icon-btn" id="refreshBtn" data-i18n-title="refresh">
                 <svg>
                     <use href="#icon-refresh" />
@@ -102,6 +108,23 @@
         <!-- 底部工具栏 -->
         <div class="input-toolbar">
             <div class="toolbar-left">
+                <!-- Agent 选择器 -->
+                <div class="toolbar-dropdown agent-dropdown" id="agentDropdown">
+                    <button class="dropdown-trigger" id="agentTrigger">
+                        <span class="agent-emoji" id="agentEmoji">🤖</span>
+                        <span class="dropdown-label" id="agentLabel">main</span>
+                        <span class="dropdown-arrow">▾</span>
+                    </button>
+                    <div class="dropdown-popup" id="agentPopup">
+                        <div class="dropdown-title" id="agentTitle">Select Agent</div>
+                        <div class="dropdown-options" id="agentOptions"></div>
+                        <div class="dropdown-separator"></div>
+                        <div class="dropdown-action" id="createAgentAction">
+                            <span>➕</span>
+                            <span data-i18n="createAgent">Create Agent...</span>
+                        </div>
+                    </div>
+                </div>
                 <div class="toolbar-dropdown" id="modeDropdown">
                     <button class="dropdown-trigger" id="modeTrigger">
                         <span class="dropdown-label" id="modeLabel"></span>

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline';">
+    <title>创建 Agent</title>
+    <link rel="stylesheet" href="{{stylesUri}}">
+    <style>
+        body {
+            padding: 20px;
+            font-family: var(--vscode-font-family);
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+            height: 100vh;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        .container {
+            display: flex;
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .form-section {
+            flex: 1;
+            min-width: 400px;
+        }
+
+        .preview-section {
+            flex: 0 0 300px;
+            position: sticky;
+            top: 20px;
+            height: fit-content;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-group label .required {
+            color: var(--vscode-errorForeground);
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px 12px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-family: var(--vscode-font-family);
+            font-size: 13px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .form-group textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .validation-message {
+            margin-top: 6px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .validation-message.success {
+            color: var(--vscode-testing-iconPassed);
+        }
+
+        .validation-message.error {
+            color: var(--vscode-errorForeground);
+        }
+
+        .validation-message.checking {
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .roles-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        .role-card {
+            padding: 16px;
+            border: 2px solid var(--vscode-input-border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .role-card:hover {
+            border-color: var(--vscode-focusBorder);
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .role-card.selected {
+            border-color: var(--vscode-focusBorder);
+            background-color: var(--vscode-list-activeSelectionBackground);
+        }
+
+        .role-card .icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .role-card .name {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .role-card .description {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.4;
+        }
+
+        .preview-card {
+            padding: 20px;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 8px;
+            background-color: var(--vscode-input-background);
+        }
+
+        .preview-card .title {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .preview-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 6px;
+            background-color: var(--vscode-editor-background);
+        }
+
+        .preview-content .emoji {
+            font-size: 48px;
+            line-height: 1;
+        }
+
+        .preview-content .info {
+            flex: 1;
+        }
+
+        .preview-content .info .name {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .preview-content .info .id {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            margin-bottom: 2px;
+        }
+
+        .preview-content .info .role {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .actions {
+            margin-top: 30px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: var(--vscode-font-family);
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover:not(:disabled) {
+            opacity: 0.8;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+
+        .btn-primary {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--vscode-button-foreground);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .preview-section {
+                position: static;
+                flex: 1;
+            }
+
+            .roles-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- 表单区域 -->
+        <div class="form-section">
+            <h2>创建新 Agent</h2>
+
+            <!-- Agent ID -->
+            <div class="form-group">
+                <label>
+                    Agent ID <span class="required">*</span>
+                </label>
+                <input type="text" id="agentId" placeholder="例如: dev-expert" autocomplete="off">
+                <div id="idValidation" class="validation-message" style="display: none;"></div>
+            </div>
+
+            <!-- 显示名称 -->
+            <div class="form-group">
+                <label>
+                    显示名称 <span class="required">*</span>
+                </label>
+                <input type="text" id="agentName" placeholder="例如: 开发专家" autocomplete="off">
+            </div>
+
+            <!-- Emoji -->
+            <div class="form-group">
+                <label>
+                    Emoji（可选，默认 🤖）
+                </label>
+                <input type="text" id="agentEmoji" placeholder="例如: 🤖" maxlength="2" autocomplete="off">
+            </div>
+
+            <!-- 角色选择 -->
+            <div class="form-group">
+                <label>
+                    角色 <span class="required">*</span>
+                </label>
+                <div id="rolesGrid" class="roles-grid">
+                    <!-- 角色卡片将通过 JS 动态生成 -->
+                </div>
+            </div>
+
+            <!-- 自定义角色名称（仅在选择"自定义角色"时显示） -->
+            <div class="form-group" id="customRoleGroup" style="display: none;">
+                <label>
+                    自定义角色名称 <span class="required">*</span>
+                </label>
+                <input type="text" id="customRoleName" placeholder="例如: 数据分析专家" autocomplete="off">
+            </div>
+
+            <!-- 角色描述 -->
+            <div class="form-group">
+                <label>
+                    角色描述 <span class="required">*</span>
+                </label>
+                <textarea id="agentDescription" placeholder="描述这个 Agent 的能力和特点..." rows="6"></textarea>
+                <div style="font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 4px;">
+                    💡 提示：选择预设角色会自动填充模板，你可以在此基础上修改
+                </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="actions">
+                <button class="btn btn-secondary" id="cancelBtn">
+                    取消
+                </button>
+                <button class="btn btn-primary" id="createBtn" disabled>
+                    创建 Agent
+                </button>
+            </div>
+        </div>
+
+        <!-- 预览区域 -->
+        <div class="preview-section">
+            <div class="preview-card">
+                <div class="title">预览</div>
+                <div class="preview-content">
+                    <div class="emoji" id="previewEmoji">🤖</div>
+                    <div class="info">
+                        <div class="name" id="previewName">Agent 名称</div>
+                        <div class="id" id="previewId">ID: agent-id</div>
+                        <div class="role" id="previewRole">角色: 未选择</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{scriptUri}}"></script>
+</body>
+
+</html>

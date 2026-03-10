@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import WebSocket from 'ws';
+import { createConnectParams } from './gateway/constants.js';
 
 /**
  * Gateway WebSocket 客户端
@@ -119,33 +120,18 @@ export class GatewayWSClient {
                     const extVersion = vscode.extensions.getExtension('shenyingjun5.openclaw')?.packageJSON.version || '0.2.2';
 
                     // 发送 connect 请求
-                    // 使用 gateway-client 作为 client.id（Gateway 枚举值）
-                    // mode=ui，只传 auth.token 即可跳过 device identity
-                    // 注意：webchat-ui/webchat 会触发 origin 检查，不适合 VSCode 插件
+                    // 使用统一的连接配置（来自 gateway/constants.ts）
                     const connectReq: RequestFrame = {
                         type: 'req',
                         id: this._nextId(),
                         method: 'connect',
-                        params: {
-                            minProtocol: 3,
-                            maxProtocol: 3,
-                            client: {
-                                id: 'openclaw-control-ui',
-                                version: extVersion,
-                                platform: process.platform,
-                                mode: 'ui'
-                            },
-                            role: 'operator',
-                            scopes: ['operator.admin', 'operator.read', 'operator.write'],
+                        params: createConnectParams({
+                            version: extVersion,
+                            platform: process.platform,
                             locale: vscode.env.language || 'en-US',
-                            userAgent: `openclaw-vscode/${extVersion}`
-                        }
+                            token: this.token
+                        })
                     };
-
-                    // 如果配置了 token，添加认证
-                    if (this.token) {
-                        (connectReq.params as any).auth = { token: this.token };
-                    }
 
                     // 等待 hello-ok
                     const listener = (data: WebSocket.Data) => {

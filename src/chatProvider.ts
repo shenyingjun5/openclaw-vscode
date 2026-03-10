@@ -21,14 +21,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
-        gateway: GatewayClient
+        gateway: GatewayClient,
+        private readonly _context: vscode.ExtensionContext
     ) {
         this._gateway = gateway;
         const windowId = vscode.env.sessionId.slice(0, 8);
         const sessionKey = `agent:main:vscode-main-${windowId}`;
 
         const sessionManager = new ChatSessionManager(_extensionUri);
-        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey);
+        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey, _context, 'main');
     }
 
     public resolveWebviewView(
@@ -53,6 +54,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // 自动扫描项目
         this._controller.sessionManager.initProjectConfig();
+
+        // 初始化 Agent（从 Workspace 关联恢复）
+        this._controller.initializeAgent().catch(err => {
+            console.error('[ChatProvider] Failed to initialize agent:', err);
+        });
 
         // 所有消息统一由 controller 处理
         webviewView.webview.onDidReceiveMessage(async (data) => {

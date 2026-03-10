@@ -6,6 +6,8 @@ import { ChangeParser } from './changeParser';
 import { ChangeManager } from './changeManager';
 import { DiffProvider } from './diffProvider';
 import { LanguageManager } from './languageManager';
+import { AgentManager, AgentInfo } from './agentManager';
+import { ProjectMemoryManager } from './projectMemoryManager';
 
 // i18n helper - 语言跟随 openclaw.aiOutputLanguage 设置
 function getLocale(): string {
@@ -93,13 +95,28 @@ export class ChatController {
     private _chatEventHandler: ((payload: any) => void) | null = null;
     private _webview: WebviewAdapter | null = null;
     private _disposables: vscode.Disposable[] = [];
+    private _agentManager: AgentManager;
+    private _currentAgentId: string = 'main';
+    private _windowId: string;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _gateway: GatewayClient,
         private readonly _sessionManager: ChatSessionManager,
-        private _sessionKey: string
+        private _sessionKey: string,
+        private readonly _context: vscode.ExtensionContext,
+        windowId?: string
     ) {
+        this._agentManager = new AgentManager();
+        this._agentManager.setGateway(_gateway);
+        this._windowId = windowId || 'main';
+
+        // 从 sessionKey 中提取 agentId（格式：agent:<agentId>:<sessionId>）
+        const match = _sessionKey.match(/^agent:([^:]+):/);
+        if (match) {
+            this._currentAgentId = match[1];
+        }
+
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
 
@@ -193,6 +210,10 @@ export class ChatController {
 
             case 'openSettings':
                 vscode.commands.executeCommand('workbench.action.openSettings', 'openclaw');
+                break;
+
+            case 'openProjectMemory':
+                vscode.commands.executeCommand('openclaw.openProjectMemory');
                 break;
 
             case 'getFiles':
@@ -302,6 +323,26 @@ export class ChatController {
                     vscode.window.showWarningMessage(`招财: 重新连接失败 - ${err instanceof Error ? err.message : err}`);
                 }
                 break;
+
+            case 'getAgents':
+                await this._handleGetAgents();
+                break;
+
+            case 'switchAgent':
+                await this._handleSwitchAgent(data.agentId);
+                break;
+
+            case 'createAgent':
+                await this._handleCreateAgent(data.config);
+                break;
+
+            case 'deleteAgent':
+                await this._handleDeleteAgent(data.agentId);
+                break;
+
+            case 'updateAgent':
+                await this._handleUpdateAgent(data.agentId, data.updates);
+                break;
         }
     }
 
@@ -316,6 +357,9 @@ export class ChatController {
 
         // 加载历史
         await this._loadHistory();
+
+        // 加载项目记忆
+        await this._loadProjectMemory();
 
         // 发送模型列表
         this._sendModels();
@@ -337,6 +381,16 @@ export class ChatController {
 
         // 连接成功后获取 thinking level
         this._sendThinkingLevel();
+
+        // 连接成功后获取 Agent 列表（确保 dropdown 显示正确的当前 Agent）
+        await this._handleGetAgents();
+
+        // 发送当前 Agent 信息（确保前端显示正确的 Agent）
+        this._webview?.postMessage({
+            type: 'agentSwitched',
+            agentId: this._currentAgentId,
+            sessionKey: this._sessionKey
+        });
 
         // 连接成功后，如果是新会话，发送上下文设置（语言 + 工作区）
         if (this._gateway.isConnected() && !this._sessionManager.hasSentContextSetup(this._sessionKey)) {
@@ -597,6 +651,109 @@ export class ChatController {
             });
         } catch (err) {
             console.warn('[loadHistory] 加载失败:', err);
+        }
+    }
+
+    /**
+     * 加载项目记忆
+     */
+    private async _loadProjectMemory() {
+        try {
+            const projectMemoryManager = ProjectMemoryManager.getInstance();
+
+            // 检查项目记忆是否已初始化
+            if (!projectMemoryManager.isInitialized()) {
+                return;
+            }
+
+            // 加载项目记忆
+            const memory = projectMemoryManager.loadProjectMemory();
+            if (!memory) {
+                return;
+            }
+
+            // 构建项目记忆消息
+            const memoryParts: string[] = [];
+
+            if (memory.context) {
+                memoryParts.push('# 项目上下文\n' + memory.context);
+            }
+
+            if (memory.progress) {
+                // 只取最近的进展（前 20 行）
+                const progressLines = memory.progress.split('\n').slice(0, 20).join('\n');
+                memoryParts.push('# 最近进展\n' + progressLines);
+            }
+
+            if (memory.memory) {
+                memoryParts.push('# 项目记忆\n' + memory.memory);
+            }
+
+            if (memoryParts.length === 0) {
+                return;
+            }
+
+            const projectName = projectMemoryManager.getProjectName();
+            const memoryContent = memoryParts.join('\n\n---\n\n');
+
+            // 发送给 Webview（显示提示）
+            this._webview?.postMessage({
+                type: 'projectMemoryLoaded',
+                projectName: projectName,
+                hasMemory: true
+            });
+
+            // 不发送消息给 Agent，避免干扰对话流程
+            // 项目记忆已经在 Agent 启动时通过文件系统加载了
+            console.log('[ProjectMemory] 项目记忆已加载:', projectName);
+
+        } catch (err) {
+            console.warn('[ProjectMemory] 加载项目记忆失败:', err);
+        }
+    }
+
+    /**
+     * 发送项目记忆给 Agent（切换 agent 后调用）
+     */
+    private async _sendProjectMemoryToAgent(sessionKey: string) {
+        const projectMemoryManager = ProjectMemoryManager.getInstance();
+        if (!projectMemoryManager.isInitialized()) {
+            return;
+        }
+
+        const memory = projectMemoryManager.loadProjectMemory();
+        if (!memory) {
+            return;
+        }
+
+        const parts: string[] = [];
+
+        if (memory.context) {
+            parts.push('# 项目上下文\n' + memory.context);
+        }
+
+        if (memory.progress) {
+            const progressLines = memory.progress.split('\n').slice(0, 20).join('\n');
+            parts.push('# 最近进展\n' + progressLines);
+        }
+
+        if (memory.memory) {
+            parts.push('# 项目记忆\n' + memory.memory);
+        }
+
+        if (parts.length === 0) {
+            return;
+        }
+
+        const projectName = projectMemoryManager.getProjectName();
+        const memoryContent = parts.join('\n\n---\n\n');
+        const message = `[系统设置 - 项目背景，无需回复]\n\n你正在为项目「${projectName}」服务，以下是项目的关键信息，请了解后直接等待用户指令：\n\n${memoryContent}`;
+
+        try {
+            this._gateway.sendMessageFireAndForget(sessionKey, message);
+            console.log('[ChatController] 项目记忆已发送给 agent:', projectName);
+        } catch (err) {
+            console.warn('[ChatController] 发送项目记忆失败:', err);
         }
     }
 
@@ -907,5 +1064,445 @@ export class ChatController {
             d.dispose();
         }
         this._disposables = [];
+    }
+
+    // ========== Agent 管理 ==========
+
+    /**
+     * 获取所有可用的 Agent
+     */
+    private async _handleGetAgents() {
+        try {
+            const agents = await this._agentManager.getAvailableAgents();
+            this._webview?.postMessage({
+                type: 'agentsList',
+                agents: agents,
+                currentAgentId: this._currentAgentId
+            });
+        } catch (err) {
+            console.error('[ChatController] Failed to get agents:', err);
+            vscode.window.showErrorMessage(`Failed to get agents: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+
+    /**
+     * 切换 Agent
+     * @param isManualSwitch 是否是用户手动切换（true=手动切换，发送项目背景；false=初始化恢复，不发送）
+     */
+    private async _handleSwitchAgent(agentId: string, isManualSwitch: boolean = true) {
+        try {
+            // 1. 检查 Agent 是否存在
+            const exists = await this._agentManager.agentExists(agentId);
+            if (!exists) {
+                vscode.window.showErrorMessage(`Agent "${agentId}" does not exist`);
+                return;
+            }
+
+            // 2. 更新当前 Agent
+            this._currentAgentId = agentId;
+
+            // 3. 生成新的 sessionKey（格式：agent:<agentId>:<windowId>）
+            const newSessionKey = `agent:${agentId}:${this._windowId}`;
+            this._sessionKey = newSessionKey;
+
+            // 4. 重置会话管理器
+            this._sessionManager.resetSession(newSessionKey);
+
+            // 5. 加载新 Agent 的历史记录
+            await this._loadHistory();
+
+            // 6. 加载项目记忆（仅手动切换时，初始化恢复由 _handleReady 负责）
+            if (isManualSwitch) {
+                await this._loadProjectMemory();
+            }
+
+            // 7. 通知 webview Agent 已切换
+            this._webview?.postMessage({
+                type: 'agentSwitched',
+                agentId: agentId,
+                sessionKey: newSessionKey
+            });
+
+            // 8. 保存到 Workspace 关联
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (workspaceFolder) {
+                await this._agentManager.saveAgentForWorkspace(workspaceFolder.uri.fsPath, agentId);
+
+                // 9. 创建项目软连接
+                try {
+                    await this._agentManager.linkProjectToAgent(agentId, workspaceFolder.uri.fsPath);
+                } catch (err) {
+                    console.warn('[ChatController] Failed to create project link:', err);
+                    // 不阻塞切换流程，只是警告
+                }
+            }
+
+            // 10. 重新发送上下文设置
+            if (this._gateway.isConnected()) {
+                try {
+                    await this._sessionManager.sendContextSetup(this._gateway, newSessionKey);
+                } catch (err) {
+                    console.warn('[ChatController] Failed to send context setup:', err);
+                }
+
+                // 11. 发送项目记忆给新 agent，让它了解项目（仅用户手动切换时发送）
+                if (isManualSwitch) {
+                    try {
+                        await this._sendProjectMemoryToAgent(newSessionKey);
+                    } catch (err) {
+                        console.warn('[ChatController] Failed to send project memory to agent:', err);
+                    }
+                }
+            }
+
+            vscode.window.showInformationMessage(`Switched to agent: ${agentId}`);
+
+        } catch (err) {
+            console.error('[ChatController] Failed to switch agent:', err);
+            vscode.window.showErrorMessage(`Failed to switch agent: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+
+    /**
+     * 创建新 Agent（打开多步骤对话框）
+     */
+    private async _handleCreateAgent(config: any) {
+        try {
+            // 如果没有传入 config，打开 CreateAgentPanel
+            if (!config) {
+                // 执行 openclaw.createAgent 命令，打开独立的创建 Agent 面板
+                vscode.commands.executeCommand('openclaw.createAgent');
+                return;
+            }
+
+            // 1. 验证 Agent ID
+            if (!config.id || !/^[a-z0-9-]+$/.test(config.id)) {
+                vscode.window.showErrorMessage('Invalid agent ID. Use lowercase letters, numbers, and hyphens only.');
+                return;
+            }
+
+            // 2. 检查 Agent 是否已存在
+            const exists = await this._agentManager.agentExists(config.id);
+            if (exists) {
+                vscode.window.showErrorMessage(`Agent "${config.id}" already exists`);
+                return;
+            }
+
+            // 3. 创建 Agent
+            await this._agentManager.createAgent(config);
+
+            // 4. 刷新 Agent 列表
+            await this._handleGetAgents();
+
+            // 5. 询问是否切换到新 Agent
+            const choice = await vscode.window.showInformationMessage(
+                `Agent "${config.name}" created successfully!`,
+                'Switch to this agent',
+                'Later'
+            );
+
+            if (choice === 'Switch to this agent') {
+                await this._handleSwitchAgent(config.id);
+            }
+
+        } catch (err) {
+            console.error('[ChatController] Failed to create agent:', err);
+            vscode.window.showErrorMessage(`Failed to create agent: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+
+    /**
+     * 显示创建 Agent 对话框（多步骤）
+     */
+    private async _showCreateAgentDialog(): Promise<any | null> {
+        // 步骤 1: Agent ID
+        const id = await vscode.window.showInputBox({
+            prompt: 'Agent ID (lowercase letters, numbers, and hyphens only)',
+            placeHolder: 'frontend-expert',
+            validateInput: (value) => {
+                if (!value) {
+                    return 'Agent ID is required';
+                }
+                if (!/^[a-z0-9-]+$/.test(value)) {
+                    return 'Only lowercase letters, numbers, and hyphens are allowed';
+                }
+                return null;
+            }
+        });
+
+        if (!id) return null;
+
+        // 步骤 2: 显示名称
+        const name = await vscode.window.showInputBox({
+            prompt: 'Display Name',
+            placeHolder: 'Frontend Expert',
+            value: id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+        });
+
+        if (!name) return null;
+
+        // 步骤 3: Emoji
+        const emoji = await vscode.window.showInputBox({
+            prompt: 'Emoji Icon (optional, default: 🤖)',
+            placeHolder: '⚛️',
+            value: '🤖'
+        });
+
+        if (emoji === undefined) return null;
+
+        // 步骤 4: 角色选择
+        const roles = [
+            { label: '🌐 Full Stack Developer', description: 'Frontend + Backend, code quality and architecture', value: 'fullstack' },
+            { label: '⚛️ Frontend Expert', description: 'React/Vue/Angular, performance optimization, UX', value: 'frontend' },
+            { label: '🔧 Backend Expert', description: 'API design, database optimization, microservices', value: 'backend' },
+            { label: '🚀 DevOps Engineer', description: 'CI/CD, containerization, cloud native', value: 'devops' },
+            { label: '🧪 Test Engineer', description: 'Unit testing, integration testing, automation', value: 'tester' },
+            { label: '🏗️ Architect', description: 'System design, technology selection, scalability', value: 'architect' },
+            { label: '✏️ Custom...', description: 'Define your own role', value: 'custom' }
+        ];
+
+        const roleChoice = await vscode.window.showQuickPick(roles, {
+            placeHolder: 'Select a preset role'
+        });
+
+        if (!roleChoice) return null;
+
+        let role = roleChoice.value;
+        let description = '';
+
+        // 步骤 5: 自定义描述（如果选择了 custom 或想要添加描述）
+        if (roleChoice.value === 'custom') {
+            const customRole = await vscode.window.showInputBox({
+                prompt: 'Custom Role Name',
+                placeHolder: 'My Custom Role'
+            });
+            if (!customRole) return null;
+            role = 'fullstack'; // 使用默认模板
+            description = `Role: ${customRole}\n\n`;
+        }
+
+        const addDesc = await vscode.window.showQuickPick(
+            [
+                { label: 'Use preset template', value: false },
+                { label: 'Add custom description', value: true }
+            ],
+            { placeHolder: 'Do you want to add a custom description?' }
+        );
+
+        if (!addDesc) return null;
+
+        if (addDesc.value) {
+            const customDesc = await vscode.window.showInputBox({
+                prompt: 'Custom Description (optional)',
+                placeHolder: 'I am a specialist in...',
+                value: description
+            });
+            if (customDesc !== undefined) {
+                description = customDesc;
+            }
+        }
+
+        return {
+            id,
+            name,
+            emoji: emoji || '🤖',
+            role,
+            description
+        };
+    }
+
+    /**
+     * 删除 Agent
+     */
+    private async _handleDeleteAgent(agentId: string) {
+        try {
+            // 1. 确认删除
+            const choice = await vscode.window.showWarningMessage(
+                `Are you sure you want to delete agent "${agentId}"?`,
+                { modal: true },
+                'Delete',
+                'Cancel'
+            );
+
+            if (choice !== 'Delete') {
+                return;
+            }
+
+            // 2. 检查是否是当前 Agent
+            if (agentId === this._currentAgentId) {
+                vscode.window.showErrorMessage('Cannot delete the currently active agent. Please switch to another agent first.');
+                return;
+            }
+
+            // 3. 检查是否是 main agent
+            if (agentId === 'main') {
+                vscode.window.showErrorMessage('Cannot delete the main agent.');
+                return;
+            }
+
+            // 4. 询问是否删除文件
+            const deleteFiles = await vscode.window.showQuickPick(
+                [
+                    { label: 'Delete agent and all files', value: true },
+                    { label: 'Delete agent only (keep files)', value: false }
+                ],
+                { placeHolder: 'Do you want to delete the agent files?' }
+            );
+
+            if (!deleteFiles) {
+                return;
+            }
+
+            // 5. 删除 Agent
+            if (this._gateway && this._gateway.isConnected()) {
+                await this._gateway.sendRpc('agents.delete', {
+                    agentId: agentId,
+                    deleteFiles: deleteFiles.value
+                });
+            } else {
+                // 使用 CLI 删除（如果有的话）
+                vscode.window.showErrorMessage('Gateway not connected. Cannot delete agent.');
+                return;
+            }
+
+            // 6. 刷新 Agent 列表
+            await this._handleGetAgents();
+
+            vscode.window.showInformationMessage(`Agent "${agentId}" deleted successfully.`);
+
+        } catch (err) {
+            console.error('[ChatController] Failed to delete agent:', err);
+            vscode.window.showErrorMessage(`Failed to delete agent: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+
+    /**
+     * 更新 Agent
+     */
+    private async _handleUpdateAgent(agentId: string, updates: any) {
+        try {
+            // 如果没有传入 updates，打开对话框收集信息
+            if (!updates) {
+                updates = await this._showUpdateAgentDialog(agentId);
+                if (!updates) {
+                    return;
+                }
+            }
+
+            // 更新 Agent
+            if (this._gateway && this._gateway.isConnected()) {
+                await this._gateway.sendRpc('agents.update', {
+                    agentId: agentId,
+                    ...updates
+                });
+            } else {
+                vscode.window.showErrorMessage('Gateway not connected. Cannot update agent.');
+                return;
+            }
+
+            // 刷新 Agent 列表
+            await this._handleGetAgents();
+
+            vscode.window.showInformationMessage(`Agent "${agentId}" updated successfully.`);
+
+        } catch (err) {
+            console.error('[ChatController] Failed to update agent:', err);
+            vscode.window.showErrorMessage(`Failed to update agent: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+
+    /**
+     * 显示更新 Agent 对话框
+     */
+    private async _showUpdateAgentDialog(agentId: string): Promise<any | null> {
+        // 获取当前 Agent 信息
+        const agents = await this._agentManager.getAvailableAgents();
+        const agent = agents.find(a => a.id === agentId);
+        if (!agent) {
+            vscode.window.showErrorMessage(`Agent "${agentId}" not found.`);
+            return null;
+        }
+
+        // 选择要更新的字段
+        const field = await vscode.window.showQuickPick(
+            [
+                { label: 'Name', description: `Current: ${agent.name}`, value: 'name' },
+                { label: 'Emoji', description: `Current: ${agent.emoji}`, value: 'emoji' },
+                { label: 'Model', description: `Current: ${agent.model || 'default'}`, value: 'model' }
+            ],
+            { placeHolder: 'What do you want to update?' }
+        );
+
+        if (!field) return null;
+
+        const updates: any = {};
+
+        if (field.value === 'name') {
+            const newName = await vscode.window.showInputBox({
+                prompt: 'New Name',
+                value: agent.name
+            });
+            if (!newName) return null;
+            updates.name = newName;
+        } else if (field.value === 'emoji') {
+            const newEmoji = await vscode.window.showInputBox({
+                prompt: 'New Emoji',
+                value: agent.emoji
+            });
+            if (!newEmoji) return null;
+            updates.emoji = newEmoji;
+        } else if (field.value === 'model') {
+            const newModel = await vscode.window.showInputBox({
+                prompt: 'New Model (leave empty for default)',
+                value: agent.model || ''
+            });
+            if (newModel === undefined) return null;
+            updates.model = newModel || null;
+        }
+
+        return updates;
+    }
+
+    /**
+     * 初始化 Agent（从 Workspace 关联恢复）
+     */
+    public async initializeAgent() {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+
+        // 1. 尝试从 Workspace 关联读取
+        const savedAgent = await this._agentManager.getAgentForWorkspace(workspaceFolder.uri.fsPath);
+
+        if (savedAgent) {
+            // 2. 检查 Agent 是否存在
+            const exists = await this._agentManager.agentExists(savedAgent);
+            if (exists) {
+                // 3. 切换到保存的 Agent（初始化恢复，不发送项目背景）
+                await this._handleSwitchAgent(savedAgent, false);
+                return;
+            } else {
+                console.warn(`[ChatController] Saved agent "${savedAgent}" does not exist, falling back to default`);
+            }
+        }
+
+        // 4. 如果没有保存的 Agent 或 Agent 不存在，使用默认 Agent
+        const config = vscode.workspace.getConfiguration('openclaw');
+        const defaultAgent = config.get<string>('defaultAgent', 'main');
+
+        if (defaultAgent !== 'main') {
+            const exists = await this._agentManager.agentExists(defaultAgent);
+            if (exists) {
+                await this._handleSwitchAgent(defaultAgent, false);
+                return;
+            } else {
+                console.warn(`[ChatController] Default agent "${defaultAgent}" does not exist, using main`);
+            }
+        }
+
+        // 5. 最终回退到 main agent
+        // main agent 总是存在的，不需要检查
+        console.log('[ChatController] Using main agent');
     }
 }

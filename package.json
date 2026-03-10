@@ -2,7 +2,7 @@
   "name": "openclaw",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.2.11",
+  "version": "0.2.19",
   "publisher": "shenyingjun5",
   "license": "MIT",
   "repository": {
@@ -95,6 +95,18 @@
           "light": "media/close-light.svg",
           "dark": "media/close-dark.svg"
         }
+      },
+      {
+        "command": "openclaw.createAgent",
+        "title": "OpenClaw: Create Agent"
+      },
+      {
+        "command": "openclaw.updateProjectProgress",
+        "title": "OpenClaw: Update Project Progress"
+      },
+      {
+        "command": "openclaw.openProjectMemory",
+        "title": "OpenClaw: Open Project Memory"
       }
     ],
     "menus": {
@@ -178,6 +190,11 @@
           "default": "",
           "description": "%config.planModePrompt.description%",
           "editPresentation": "multilineText"
+        },
+        "openclaw.defaultAgent": {
+          "type": "string",
+          "default": "main",
+          "description": "Default agent for new sessions"
         }
       }
     }
