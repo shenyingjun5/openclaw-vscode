@@ -339,25 +339,21 @@ export class ChatSessionManager {
             if (isZh) {
                 parts.push(
                     `[VSCode 上下文]\n` +
-                    `用户正在 VSCode 中编辑项目：\n` +
-                    `- 项目路径: ${workspaceDir}\n` +
-                    `- 项目名称: ${projectName}\n\n` +
-                    `当用户询问代码、文件或项目相关任务时，请在此项目目录下操作，而非默认工作区。`
+                    `项目: ${projectName} (${workspaceDir})\n` +
+                    `代码/文件相关任务请在此目录操作。`
                 );
             } else {
                 parts.push(
                     `[VSCode Context]\n` +
-                    `The user is currently editing a project in VSCode:\n` +
-                    `- Project path: ${workspaceDir}\n` +
-                    `- Project name: ${projectName}\n\n` +
-                    `When the user asks about code, files, or project-related tasks, operate in this project directory, not your default workspace.`
+                    `Project: ${projectName} (${workspaceDir})\n` +
+                    `Operate in this directory for code/file tasks.`
                 );
             }
         }
 
         if (parts.length === 0) return;
 
-        const header = isZh ? '[系统设置 - 无需回复]' : '[System Setup - No reply needed]';
+        const header = '[system-setup:no-reply]';
         const setupMessage = `${header}\n\n${parts.join('\n\n')}`;
 
         try {
@@ -448,9 +444,9 @@ export class ChatSessionManager {
                 content = content.trim();
                 
                 // 过滤掉上下文设置相关的系统消息和回复
-                const isSetupMessage = content.includes('[System Setup - No reply needed]') ||
-                    content.includes('[系统设置 - 无需回复]') ||
-                    content.includes('Please confirm with "Language settings updated"');
+                const isSetupMessage = content.includes('[system-setup:no-reply]') ||
+                    content.includes('[System Setup - No reply needed]') ||
+                    content.includes('[系统设置 - 无需回复]');
                 if (isSetupMessage) {
                     skipNextAssistant = true;
                     continue;

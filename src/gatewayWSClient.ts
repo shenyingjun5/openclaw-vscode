@@ -313,7 +313,7 @@ export class GatewayWSClient {
                 } else if (payload.state === 'aborted') {
                     clearTimeout(idleTimer);
                     this.off('chat', handler);
-                    resolve(fullContent || '(已中止)');
+                    resolve(fullContent || '(aborted)');
                 }
             };
 

@@ -22,7 +22,7 @@ export class MessageBuilder {
         if (config) {
             // Matched skill only (workflows are not auto-injected)
             if (matchedSkill) {
-                parts.push(`[Skill: ${matchedSkill.name}]\n${matchedSkill.content}`);
+                parts.push(`[skill:${matchedSkill.name}]\n${matchedSkill.content}`);
             }
         }
 

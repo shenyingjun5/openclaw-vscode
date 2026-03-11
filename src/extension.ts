@@ -56,8 +56,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 状态栏
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBar.text = '$(comment-discussion) 招财';
-    statusBar.tooltip = '点击打开招财对话窗口';
+    statusBar.text = '$(comment-discussion) OpenClaw';
+    statusBar.tooltip = 'Click to open OpenClaw chat';
     statusBar.command = 'openclaw.openChatPanel';
     statusBar.show();
     context.subscriptions.push(statusBar);
@@ -65,19 +65,19 @@ export function activate(context: vscode.ExtensionContext) {
     // 更新状态栏
     gatewayClient.onConnectionChange((connected) => {
         if (connected) {
-            statusBar.text = '$(comment-discussion) 招财';
+            statusBar.text = '$(comment-discussion) OpenClaw';
             const mode = gatewayClient.getMode();
             if (mode === 'ws') {
-                statusBar.tooltip = `已连接 (WebSocket): ${gatewayClient.getConnectedUrl()}`;
+                statusBar.tooltip = `Connected (WebSocket): ${gatewayClient.getConnectedUrl()}`;
             } else {
-                statusBar.tooltip = '已连接 (CLI)';
+                statusBar.tooltip = 'Connected (CLI)';
             }
             statusBar.command = 'openclaw.showConnectionStatus';
             statusBar.backgroundColor = undefined;
         } else {
             const lastError = gatewayClient.getLastError();
-            statusBar.text = '$(warning) 招财';
-            statusBar.tooltip = lastError ? `连接失败: ${lastError}` : '未连接';
+            statusBar.text = '$(warning) OpenClaw';
+            statusBar.tooltip = lastError ? `Connection failed: ${lastError}` : 'Disconnected';
             statusBar.command = 'openclaw.showConnectionStatus';
             statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         }
@@ -110,57 +110,57 @@ async function showConnectionStatus() {
         const url = gatewayClient.getConnectedUrl();
         const connLabel = mode === 'ws' ? `WebSocket: ${url}` : 'CLI';
         const items: vscode.QuickPickItem[] = [
-            { label: '$(check) 已连接', description: connLabel, kind: vscode.QuickPickItemKind.Default },
+            { label: '$(check) Connected', description: connLabel, kind: vscode.QuickPickItemKind.Default },
             { label: '', kind: vscode.QuickPickItemKind.Separator },
-            { label: '$(comment-discussion) 打开对话面板' },
-            { label: '$(refresh) 重新连接' },
-            { label: '$(gear) 打开设置' }
+            { label: '$(comment-discussion) Open Chat Panel' },
+            { label: '$(refresh) Reconnect' },
+            { label: '$(gear) Open Settings' }
         ];
 
         const selected = await vscode.window.showQuickPick(items, {
-            title: '招财 - 连接状态',
-            placeHolder: `已连接 (${connLabel})`
+            title: 'OpenClaw - Connection Status',
+            placeHolder: `Connected (${connLabel})`
         });
 
         if (!selected) { return; }
 
-        if (selected.label.includes('打开对话面板')) {
+        if (selected.label.includes('Open Chat Panel')) {
             vscode.commands.executeCommand('openclaw.openChatPanel');
-        } else if (selected.label.includes('重新连接')) {
+        } else if (selected.label.includes('Reconnect')) {
             try {
                 await gatewayClient.reloadTokenAndReconnect();
-                vscode.window.showInformationMessage('招财: 重新连接成功');
+                vscode.window.showInformationMessage('OpenClaw: Reconnected successfully');
             } catch (err) {
-                vscode.window.showWarningMessage(`招财: 重新连接失败 - ${err instanceof Error ? err.message : err}`);
+                vscode.window.showWarningMessage(`OpenClaw: Reconnect failed - ${err instanceof Error ? err.message : err}`);
             }
-        } else if (selected.label.includes('打开设置')) {
+        } else if (selected.label.includes('Open Settings')) {
             vscode.commands.executeCommand('workbench.action.openSettings', 'openclaw');
         }
     } else {
         // 红灯：显示错误原因 + 操作选项
-        const lastError = gatewayClient.getLastError() || '未知原因';
+        const lastError = gatewayClient.getLastError() || 'Unknown error';
         const items: vscode.QuickPickItem[] = [
-            { label: '$(error) 连接失败', description: lastError, kind: vscode.QuickPickItemKind.Default },
+            { label: '$(error) Connection Failed', description: lastError, kind: vscode.QuickPickItemKind.Default },
             { label: '', kind: vscode.QuickPickItemKind.Separator },
-            { label: '$(refresh) 重新连接' },
-            { label: '$(gear) 打开设置', description: '检查 Gateway 地址和 Token' }
+            { label: '$(refresh) Reconnect' },
+            { label: '$(gear) Open Settings', description: 'Check Gateway URL and Token' }
         ];
 
         const selected = await vscode.window.showQuickPick(items, {
-            title: '招财 - 连接失败',
+            title: 'OpenClaw - Connection Failed',
             placeHolder: lastError
         });
 
         if (!selected) { return; }
 
-        if (selected.label.includes('重新连接')) {
+        if (selected.label.includes('Reconnect')) {
             try {
                 await gatewayClient.reloadTokenAndReconnect();
-                vscode.window.showInformationMessage('招财: 重新连接成功');
+                vscode.window.showInformationMessage('OpenClaw: Reconnected successfully');
             } catch (err) {
-                vscode.window.showWarningMessage(`招财: 重新连接失败 - ${err instanceof Error ? err.message : err}`);
+                vscode.window.showWarningMessage(`OpenClaw: Reconnect failed - ${err instanceof Error ? err.message : err}`);
             }
-        } else if (selected.label.includes('打开设置')) {
+        } else if (selected.label.includes('Open Settings')) {
             vscode.commands.executeCommand('workbench.action.openSettings', 'openclaw');
         }
     }
@@ -171,7 +171,7 @@ function togglePlanMode() {
     const current = config.get<boolean>('planMode') || false;
     config.update('planMode', !current, vscode.ConfigurationTarget.Global);
 
-    vscode.window.showInformationMessage(`计划模式: ${!current ? '开启' : '关闭'}`);
+    vscode.window.showInformationMessage(`Plan Mode: ${!current ? 'ON' : 'OFF'}`);
     chatProvider.updatePlanMode(!current);
 }
 

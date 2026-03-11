@@ -133,7 +133,7 @@
     let autoRefreshTimer = null; // 自动刷新定时器
     let chatRunId = null;      // 当前运行的 runId，非 null = 等待 AI 回复
     let currentSessionModel = null; // 当前会话的模型（会话级状态）
-    let currentThinkLevel = 'low'; // 当前思考深度（会话级状态）
+    let currentThinkLevel = 'minimal'; // 当前思考深度（会话级状态）
     let assistantName = '';   // AI 名称（从 agent.identity.get 获取）
     let assistantAvatar = ''; // AI 头像（emoji/字母/URL）
 
@@ -1689,9 +1689,9 @@ Try:
 
         vscode.postMessage({ type: 'setModel', model: newModel });
 
-        // 模型切换后，thinking 重置为 low
-        currentThinkLevel = 'low';
-        vscode.postMessage({ type: 'setThinking', level: 'low' });
+        // 模型切换后，thinking 重置为 minimal
+        currentThinkLevel = 'minimal';
+        vscode.postMessage({ type: 'setThinking', level: 'minimal' });
 
         renderDropdowns();
         closeAllDropdowns();
@@ -1957,7 +1957,7 @@ Try:
                 break;
 
             case 'updateThinking':
-                currentThinkLevel = message.level || 'low';
+                currentThinkLevel = message.level || 'minimal';
                 renderThinkDropdown();
                 break;
 

@@ -104,7 +104,7 @@ export class LanguageManager {
         // }
 
         const langName = langNames[lang] || lang;
-        return `Please respond in ${langName} unless the user explicitly requests a different language.`;
+        return `Respond in ${langName} unless user requests otherwise.`;
     }
 
     /**

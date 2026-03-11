@@ -265,7 +265,7 @@ export class GatewayClient {
                 this._connectedUrl = '';
                 this._lastError = this._classifyError(lastErr);
                 this._notifyConnectionChange(false);
-                throw new Error(`WebSocket 连接失败: ${lastErr?.message || '未知错误'}`);
+                throw new Error(`WebSocket connection failed: ${lastErr?.message || 'Unknown error'}`);
             }
 
             console.warn('[Gateway] All WebSocket URLs failed, trying CLI mode');
@@ -293,7 +293,7 @@ export class GatewayClient {
      * 将错误分类为用户友好的中文提示
      */
     private _classifyError(err: Error | null): string {
-        if (!err) { return '未知错误'; }
+        if (!err) { return 'Unknown error'; }
         const msg = err.message || '';
 
         if (msg.includes('ECONNREFUSED')) {
@@ -303,10 +303,10 @@ export class GatewayClient {
             return `无法解析地址 (${this._baseUrl})`;
         }
         if (msg.includes('timeout') || msg.includes('Timeout')) {
-            return 'Gateway 连接超时，请确认服务是否正常运行';
+            return 'Gateway connection timed out. Please verify the service is running.';
         }
         if (msg.includes('auth') || msg.includes('token') || msg.includes('401') || msg.includes('forbidden')) {
-            return 'Token 认证失败，请在设置中检查 Gateway Token';
+            return 'Token authentication failed. Please check your Gateway Token in settings.';
         }
         if (msg.includes('Connect failed')) {
             return `Gateway 握手失败 (${this._baseUrl})`;
@@ -554,7 +554,7 @@ export class GatewayClient {
 
                     const assistantMessage: Message = {
                         role: 'assistant',
-                        content: content || '(无回复)',
+                        content: content || '(no reply)',
                         timestamp: new Date().toISOString()
                     };
 
@@ -570,7 +570,7 @@ export class GatewayClient {
                     // 如果解析失败，直接返回原始输出
                     const assistantMessage: Message = {
                         role: 'assistant',
-                        content: stdout.trim() || stderr.trim() || '(无回复)',
+                        content: stdout.trim() || stderr.trim() || '(no reply)',
                         timestamp: new Date().toISOString()
                     };
                     resolve(assistantMessage);
@@ -1007,8 +1007,8 @@ export class GatewayClient {
                 console.warn('[Gateway] Failed to get session thinking level:', err);
             }
         }
-        // 默认返回 low
-        return 'low';
+        // 默认返回 minimal
+        return 'minimal';
     }
 
     /**

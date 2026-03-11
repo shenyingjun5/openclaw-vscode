@@ -484,8 +484,8 @@ export class ChatController {
                 const customPrompt = vscode.workspace.getConfiguration('openclaw').get<string>('planModePrompt', '').trim();
                 const marker = isZh ? '---- 计划模式 ----' : '---- Plan Mode ----';
                 const body = customPrompt || (isZh
-                    ? '⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败'
-                    : '⚠️ Do Not Execute — Plan Only\n\nYou must:\n1. Output a plan only, do not call any tools\n2. List each step and its impact\n3. Wait for the user to say "execute" before calling tools\n\nViolation = task failed');
+                    ? '⚠️ 计划模式\n允许: 只读工具(读文件/搜索/列目录)\n禁止: 写入/修改/删除/执行\n输出: 步骤+影响的完整计划\n用户说"执行"后才可调用写入工具'
+                    : '⚠️ Plan Mode\nAllowed: read-only tools (read/search/list)\nForbidden: write/modify/delete/execute\nOutput: complete plan with steps + impact\nAwait user "execute" before write tools');
                 messageToSend += `\n\n${marker}\n${body}\n${marker}`;
             }
         }
@@ -551,7 +551,7 @@ export class ChatController {
                 this._removeChatEventListener();
 
                 if (state === 'error') {
-                    const errorMsg = payload.errorMessage || 'AI 回复出错';
+                    const errorMsg = payload.errorMessage || 'AI response error';
                     this._webview?.postMessage({
                         type: 'error',
                         content: errorMsg,
@@ -868,7 +868,7 @@ export class ChatController {
         const fileName = path.basename(editor.document.fileName);
         const lang = editor.document.languageId;
 
-        const content = `Please analyze this code:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
+        const content = `Analyze:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
 
         this._webview?.postMessage({
             type: 'addMessage',
@@ -890,7 +890,7 @@ export class ChatController {
         const fileName = path.basename(editor.document.fileName);
         const lang = editor.document.languageId;
 
-        const content = `Please analyze this file:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
+        const content = `Analyze:\n\n\`${fileName}\`:\n\`\`\`${lang}\n${text}\n\`\`\``;
 
         this._webview?.postMessage({
             type: 'addMessage',
