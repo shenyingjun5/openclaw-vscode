@@ -83,7 +83,46 @@ export class GatewayClient {
             console.warn('[Gateway] Failed to read token from settings:', err);
         }
 
-        // ② 回退：从配置文件读取
+        // 解析当前 gatewayUrl 的端口（用于匹配 profile）
+        let targetPort: number | null = null;
+        try {
+            const url = new URL(this._baseUrl);
+            targetPort = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+        } catch {
+            // URL 解析失败，跳过 profile 匹配
+        }
+
+        // ② 扫描 profiles 目录，按端口匹配实例配置
+        if (targetPort) {
+            try {
+                const profilesDir = path.join(os.homedir(), '.openclaw', 'profiles');
+                if (fs.existsSync(profilesDir)) {
+                    const profiles = fs.readdirSync(profilesDir);
+                    for (const profile of profiles) {
+                        const profileConfig = path.join(profilesDir, profile, 'openclaw.json');
+                        if (!fs.existsSync(profileConfig)) continue;
+                        try {
+                            const content = fs.readFileSync(profileConfig, 'utf-8');
+                            const config = JSON.parse(content);
+                            const port = config?.gateway?.port;
+                            if (port === targetPort) {
+                                const token = config?.gateway?.auth?.token;
+                                if (token && typeof token === 'string') {
+                                    console.log(`[Gateway] Token matched from profile: ${profile} (port ${port})`);
+                                    return token;
+                                }
+                            }
+                        } catch {
+                            // 单个 profile 解析失败，继续下一个
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[Gateway] Failed to scan profiles:', err);
+            }
+        }
+
+        // ③ 回退：从根配置文件读取
         try {
             const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
             if (fs.existsSync(jsonConfigPath)) {
@@ -124,26 +163,26 @@ export class GatewayClient {
             const userProfile = process.env.USERPROFILE || '';
             const programFiles = process.env.PROGRAMFILES || '';
             const programFilesX86 = process.env['PROGRAMFILES(X86)'] || '';
-            
+
             // 获取 npm prefix（实际安装路径）
             const npmPrefix = this._getNpmPrefix();
-            
+
             possiblePaths = [
                 // npm global install (使用实际 npm prefix)
                 npmPrefix ? path.join(npmPrefix, 'openclaw.cmd') : '',
                 npmPrefix ? path.join(npmPrefix, 'openclaw') : '',
                 path.join(appData, 'npm', 'openclaw.cmd'),
                 path.join(userProfile, 'AppData', 'Roaming', 'npm', 'openclaw.cmd'),
-                
+
                 // scoop
                 path.join(localAppData, 'Programs', 'openclaw', 'openclaw.exe'),
                 path.join(userProfile, 'scoop', 'shims', 'openclaw.cmd'),
                 path.join(userProfile, 'scoop', 'shims', 'openclaw.exe'),
-                
+
                 // chocolatey
                 path.join('C:\\ProgramData', 'chocolatey', 'bin', 'openclaw.exe'),
                 path.join('C:\\ProgramData', 'chocolatey', 'bin', 'openclaw.cmd'),
-                
+
                 // winget / msi 安装
                 path.join(programFiles, 'OpenClaw', 'openclaw.exe'),
                 path.join(programFilesX86, 'OpenClaw', 'openclaw.exe'),
@@ -272,7 +311,7 @@ export class GatewayClient {
             this._mode = 'cli';
             this._wsClient = null;
         }
-        
+
         // CLI 模式：检查可用性
         try {
             await this._checkOpenclawAvailable();
@@ -596,7 +635,7 @@ export class GatewayClient {
             const runId = this._activeRunId || undefined;
             this._activeSessionKey = null;
             this._activeRunId = null;
-            
+
             this._wsClient.abortChat(sessionKey, runId).catch((err) => {
                 console.warn('[Gateway] chat.abort failed:', err);
             });
@@ -629,7 +668,7 @@ export class GatewayClient {
                     await this._wsClient.connect();
                     this._reattachChatHandlers();
                 }
-                
+
                 // WebSocket 返回完整消息（包括 toolCall）
                 const messages = await this._wsClient.getHistory(sessionKey, limit);
                 // 确保 timestamp 存在
@@ -646,7 +685,7 @@ export class GatewayClient {
                 // 回退到 CLI
             }
         }
-        
+
         // CLI 模式（回退方案）
         return this.getMessages(sessionKey);
     }
@@ -663,7 +702,7 @@ export class GatewayClient {
                     await this._wsClient.connect();
                     this._reattachChatHandlers();
                 }
-                
+
                 return await this._wsClient.getSessions();
             } catch (err) {
                 if (!this._isCliFallbackEnabled()) {
@@ -674,7 +713,7 @@ export class GatewayClient {
                 // 回退到 CLI
             }
         }
-        
+
         // CLI 模式（回退方案）
         return new Promise((resolve, reject) => {
             const spawnCmd = this._getSpawnCommand(['sessions', 'list', '--json']);
@@ -1023,7 +1062,7 @@ export class GatewayClient {
                     await this._wsClient.connect();
                     this._reattachChatHandlers();
                 }
-                
+
                 await this._wsClient.deleteSession(sessionKey);
                 return;
             } catch (err) {
@@ -1035,7 +1074,7 @@ export class GatewayClient {
                 // 回退到 HTTP
             }
         }
-        
+
         // HTTP 模式（回退方案）
         return this._deleteSessionHTTP(sessionKey);
     }

@@ -8,7 +8,7 @@ import { ChatController, WebviewAdapter } from './chatController';
  * 侧边栏 Webview 适配器
  */
 class SidebarAdapter implements WebviewAdapter {
-    constructor(private _view: vscode.WebviewView) {}
+    constructor(private _view: vscode.WebviewView) { }
     postMessage(message: any) {
         this._view.webview.postMessage(message);
     }
@@ -29,7 +29,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const sessionKey = `agent:main:vscode-main-${windowId}`;
 
         const sessionManager = new ChatSessionManager(_extensionUri);
-        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey, _context, 'main');
+        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey, _context, `vscode-main-${windowId}`);
     }
 
     public resolveWebviewView(
@@ -111,11 +111,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     public async closeChat() {
-        // 1. deleteSession on Gateway
-        this._gateway.deleteSession(this._controller.sessionKey).catch(() => {});
-        // 2. Reset local session state
+        // 1. Reset local session state（不再删除 Gateway 上的会话）
         this._controller.sessionManager.resetSession(this._controller.sessionKey);
-        // 3. Clear webview messages
+        // 2. Clear webview messages
         this._controller.clearChat();
     }
 }

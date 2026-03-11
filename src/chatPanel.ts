@@ -8,7 +8,7 @@ import { ChatController, WebviewAdapter, t } from './chatController';
  * 独立面板 Webview 适配器
  */
 class PanelAdapter implements WebviewAdapter {
-    constructor(private _panel: vscode.WebviewPanel) {}
+    constructor(private _panel: vscode.WebviewPanel) { }
     postMessage(message: any) {
         this._panel.webview.postMessage(message);
     }
@@ -23,7 +23,7 @@ class PanelSessionPool {
     private activePanels = new Set<number>();
     private static readonly MAX_PANELS = 5;
 
-    private constructor() {}
+    private constructor() { }
 
     public static getInstance(): PanelSessionPool {
         if (!PanelSessionPool.instance) {
@@ -113,7 +113,7 @@ export class ChatPanel {
 
         // 初始化 SessionManager 和 Controller
         const sessionManager = new ChatSessionManager(extensionUri);
-        this._controller = new ChatController(extensionUri, gateway, sessionManager, sessionKey, context, `panel-${panelId}`);
+        this._controller = new ChatController(extensionUri, gateway, sessionManager, sessionKey, context, `vscode-panel-${windowId}-${panelId}`);
 
         // 绑定 webview
         this._controller.setWebview(new PanelAdapter(panel));
@@ -172,11 +172,8 @@ export class ChatPanel {
         ChatPanel.panels.delete(this._panelId);
         PanelSessionPool.getInstance().release(this._panelId);
 
-        // Reset session
+        // Reset session（不再删除 Gateway 上的会话）
         this._controller.sessionManager.resetSession(this._controller.sessionKey);
-
-        // Delete session asynchronously
-        this._gateway.deleteSession(this._controller.sessionKey).catch(() => {});
 
         // 清理 controller 资源
         this._controller.dispose();

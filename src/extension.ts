@@ -31,16 +31,8 @@ export function activate(context: vscode.ExtensionContext) {
     // 初始化 AgentManager
     const agentManager = new AgentManager(gatewayClient);
 
-    // 初始化 ProjectMemoryManager
+    // ProjectMemoryManager（仅用于命令，不再自动初始化）
     const projectMemoryManager = ProjectMemoryManager.getInstance();
-
-    // 自动检查并初始化项目记忆
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-        const initialized = projectMemoryManager.tryInitialize();
-        if (initialized) {
-            console.log('[OpenClaw] 项目记忆已初始化');
-        }
-    }
 
     // 注册 Chat View Provider（侧边栏）
     chatProvider = new ChatViewProvider(context.extensionUri, gatewayClient, context);
