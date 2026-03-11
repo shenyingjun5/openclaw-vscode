@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { GatewayClient } from './gateway';
 import { ChatSessionManager } from './chatSessionManager';
 import { ChatController, WebviewAdapter, t } from './chatController';
@@ -108,12 +109,15 @@ export class ChatPanel {
         this._panelId = panelId;
 
         // 创建 session ID
-        const windowId = vscode.env.sessionId.slice(0, 8);
-        const sessionKey = `agent:main:vscode-panel-${windowId}-${panelId}`;
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        const stableId = workspacePath
+            ? crypto.createHash('md5').update(workspacePath).digest('hex').slice(0, 8)
+            : vscode.env.machineId.slice(0, 8);
+        const sessionKey = `agent:main:vp-${stableId}-${panelId}`;
 
         // 初始化 SessionManager 和 Controller
         const sessionManager = new ChatSessionManager(extensionUri);
-        this._controller = new ChatController(extensionUri, gateway, sessionManager, sessionKey, context, `vscode-panel-${windowId}-${panelId}`);
+        this._controller = new ChatController(extensionUri, gateway, sessionManager, sessionKey, context, `vp-${stableId}-${panelId}`);
 
         // 绑定 webview
         this._controller.setWebview(new PanelAdapter(panel));

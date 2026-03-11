@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { GatewayClient } from './gateway';
 import { ChatSessionManager } from './chatSessionManager';
 import { ChatController, WebviewAdapter } from './chatController';
@@ -25,11 +26,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext
     ) {
         this._gateway = gateway;
-        const windowId = vscode.env.sessionId.slice(0, 8);
-        const sessionKey = `agent:main:vscode-main-${windowId}`;
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        const stableId = workspacePath
+            ? crypto.createHash('md5').update(workspacePath).digest('hex').slice(0, 8)
+            : vscode.env.machineId.slice(0, 8);
+        const sessionKey = `agent:main:vm-${stableId}`;
 
         const sessionManager = new ChatSessionManager(_extensionUri);
-        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey, _context, `vscode-main-${windowId}`);
+        this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey, _context, `vm-${stableId}`);
     }
 
     public resolveWebviewView(
