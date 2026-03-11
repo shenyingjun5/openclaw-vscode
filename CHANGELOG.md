@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [0.2.21] - 2026-03-11
+
+### Added - 新增 ✨
+
+#### 项目会话绑定 🔗
+- **项目路径哈希** — 使用项目路径的 MD5 哈希作为稳定标识符，确保会话与项目绑定
+- **独立会话历史** — 每个项目拥有独立的会话历史，切换项目时自动切换会话
+- **会话持久化** — 关闭 VSCode 重新打开同一项目，会话历史自动恢复
+- **无项目降级** — 未打开项目时，使用 machineId 作为标识符
+- **Project path hashing** — Use MD5 hash of project path as stable identifier to bind sessions to projects
+- **Independent session history** — Each project has its own session history, auto-switch when changing projects
+- **Session persistence** — Session history auto-restores when reopening the same project
+- **No-project fallback** — Use machineId as identifier when no project is open
+
+### Changed - 修改 🔄
+
+#### SessionKey 格式优化 🆔
+- **侧边栏** — `agent:main:vscode-main-${windowId}` → `agent:main:vm-${stableId}`
+- **面板** — `agent:main:vscode-panel-${windowId}-${panelId}` → `agent:main:vp-${stableId}-${panelId}`
+- **Client ID** — 使用项目稳定标识符替代窗口 ID
+- **Sidebar** — `agent:main:vscode-main-${windowId}` → `agent:main:vm-${stableId}`
+- **Panel** — `agent:main:vscode-panel-${windowId}-${panelId}` → `agent:main:vp-${stableId}-${panelId}`
+- **Client ID** — Use project stable identifier instead of window ID
+
 ## [0.2.20] - 2026-03-11
 
 ### Fixed - 修复 🐛
