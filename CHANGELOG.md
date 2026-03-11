@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [0.2.20] - 2026-03-11
+
+### Fixed - 修复 🐛
+
+#### Token 读取优化 🔑
+- **Profile 端口匹配** — 支持按端口匹配 profile 配置，自动读取对应实例的 token
+- **多实例支持** — 扫描 `~/.openclaw/profiles/` 目录，根据 Gateway URL 端口匹配正确的配置
+- **Profile port matching** — Support port-based profile matching to auto-read token from corresponding instance
+- **Multi-instance support** — Scan `~/.openclaw/profiles/` directory and match config by Gateway URL port
+
+#### 会话清理优化 🧹
+- **保留会话** — 关闭聊天面板时不再删除 Gateway 上的会话，避免意外丢失聊天历史
+- **Preserve sessions** — No longer delete Gateway sessions when closing chat panel to avoid accidental history loss
+
+### Changed - 修改 🔄
+
+#### Client ID 优化 🆔
+- **唯一标识** — 使用 `vscode-panel-${windowId}-${panelId}` 作为 client.id，确保每个面板有唯一标识
+- **Unique identifier** — Use `vscode-panel-${windowId}-${panelId}` as client.id to ensure unique identification for each panel
+
 ## [0.2.19] - 2026-03-10
 
 ### Added - 新增 ✨
