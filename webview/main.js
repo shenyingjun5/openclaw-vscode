@@ -1484,15 +1484,16 @@ Try:
     messageInput.addEventListener('input', (e) => {
         autoResize();
         updateSendButtonState();
-        if (e.data === '@') {
-            vscode.postMessage({ type: 'getFiles' });
-        }
-        // Show slash picker when typing /
-        if (e.data === '/') {
-            // Record the position of / (cursor is now after /)
-            slashTriggerPos = (messageInput.selectionStart || 1) - 1;
-            showSlashPicker();
-        }
+        // @ and / detection disabled - send as plain text
+        // if (e.data === '@') {
+        //     vscode.postMessage({ type: 'getFiles' });
+        // }
+        // // Show slash picker when typing /
+        // if (e.data === '/') {
+        //     // Record the position of / (cursor is now after /)
+        //     slashTriggerPos = (messageInput.selectionStart || 1) - 1;
+        //     showSlashPicker();
+        // }
     });
 
     messageInput.addEventListener('keydown', (e) => {
