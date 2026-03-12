@@ -907,6 +907,35 @@ body {
     display: block;
 }
 
+/* Execute button for Plan mode */
+.execute-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: var(--send-btn-active);
+    color: white;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+.execute-btn:hover {
+    background: #16a34a;
+}
+
+.execute-btn:active {
+    opacity: 0.8;
+}
+
+.execute-btn .execute-text {
+    white-space: nowrap;
+}
+
 /* File picker modal */
 .file-picker-overlay {
     position: fixed;

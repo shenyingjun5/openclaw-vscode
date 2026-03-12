@@ -150,6 +150,7 @@
     const messages = document.getElementById('messages');
     const messageInput = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
+    const executeBtn = document.getElementById('executeBtn');
     const refreshBtn = document.getElementById('refreshBtn');
     const settingsBtn = document.getElementById('settingsBtn');
     const attachBtn = document.getElementById('attachBtn');
@@ -1108,27 +1109,25 @@ Try:
     }
 
     // Send message
-    function sendMessage() {
-        const text = messageInput.value.trim();
-        if (!text && attachments.length === 0) return;
+    function sendMessage(forcedText) {
+        const isForced = forcedText !== undefined;
+        const text = isForced ? forcedText : messageInput.value.trim();
+        
+        // If forcedText is provided (e.g., 'execute'), skip empty check unless it's a real message
+        if (!text && attachments.length === 0 && !isForced) return;
 
         if (isBusy()) {
             enqueueMessage(text, attachments);
-
-            // 清空输入框
-            messageInput.value = '';
-            messageInput.style.height = 'auto';
-            attachments = [];
-            updateAttachments();
             return;
         }
 
         // 空闲状态 → 立即发送
-        sendMessageNow(text, attachments);
+        // Pass isForced flag to prevent input clearing when forcing a command
+        sendMessageNow(text, attachments, isForced);
     }
 
     // 实际发送消息（立即）
-    function sendMessageNow(text, atts) {
+    function sendMessageNow(text, atts, isForced = false) {
         // Build message content
         let fullMessage = text;
 
@@ -1151,8 +1150,8 @@ Try:
         // Show user message with attachments
         addMessage('user', text || '[attachment]', atts.length > 0 ? [...atts] : null);
 
-        // Clear input if called from sendMessage (not from queue)
-        if (atts === attachments) {
+        // Clear input if called from sendMessage (not from queue) and not forced
+        if (!isForced && atts === attachments) {
             messageInput.value = '';
             messageInput.style.height = 'auto';
             attachments = [];
@@ -1506,6 +1505,12 @@ Try:
 
             const text = messageInput.value.trim();
 
+            // Plan mode + empty input → execute plan
+            if (planMode && !text && attachments.length === 0) {
+                sendMessage('execute');
+                return;
+            }
+
             // 输入框为空 → 不做任何动作
             if (!text && attachments.length === 0) {
                 return;
@@ -1534,6 +1539,11 @@ Try:
         } else {
             sendMessage();
         }
+    });
+
+    // Execute button (Plan mode)
+    executeBtn.addEventListener('click', () => {
+        sendMessage('execute');
     });
 
     // Attach button
@@ -1606,6 +1616,7 @@ Try:
         if (!option) return;
         const value = option.dataset.value;
         planMode = value === 'plan';
+        executeBtn.style.display = planMode ? 'flex' : 'none';
         vscode.postMessage({ type: 'setPlanMode', enabled: planMode });
         renderModeDropdown();
         closeAllDropdowns();
@@ -1923,6 +1934,7 @@ Try:
 
             case 'updatePlanMode':
                 planMode = message.enabled;
+                executeBtn.style.display = planMode ? 'flex' : 'none';
                 renderModeDropdown();
                 break;
 
