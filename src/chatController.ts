@@ -413,53 +413,16 @@ export class ChatController {
         const changeManager = ChangeManager.getInstance();
         await changeManager.autoAcceptPending();
 
-        // 解析 slash 命令
-        let forceSkillName: string | undefined;
-        let forceWorkflow = false;
-        let actualContent = content;
-
-        const slashMatch = content.match(/^\/(\S+)\s*(.*)/);
-        if (slashMatch) {
-            const prefix = slashMatch[1];
-            const rest = slashMatch[2];
-
-            if (prefix.startsWith('.')) {
-                forceWorkflow = true;
-                actualContent = rest;
-            } else {
-                forceSkillName = prefix;
-                actualContent = rest;
-            }
-        }
-
         // 使用 SessionManager 构建消息
-        const { message: finalMessage, triggeredSkill } = this._sessionManager.buildMessage(
-            actualContent,
+        const { message: finalMessage } = this._sessionManager.buildMessage(
+            content,
             this._sessionKey,
-            forceSkillName,
-            forceWorkflow
+            undefined,
+            false
         );
 
-        // 如果 /xxx 没命中任何技能，按原文放行给 AI
-        const effectiveMessage = (forceSkillName && !triggeredSkill)
-            ? this._sessionManager.buildMessage(content, this._sessionKey, undefined, false).message
-            : finalMessage;
-
-        // 通知 UI 触发的技能
-        if (triggeredSkill) {
-            this._webview?.postMessage({
-                type: 'skillTriggered',
-                skill: {
-                    name: triggeredSkill.name,
-                    trigger: forceSkillName ? '/' + triggeredSkill.name : triggeredSkill.triggers.find(t =>
-                        actualContent.toLowerCase().includes(t.toLowerCase())
-                    ) || triggeredSkill.triggers[0]
-                }
-            });
-        }
-
         // Plan Mode 后缀
-        let messageToSend = effectiveMessage;
+        let messageToSend = finalMessage;
 
         // Empty message check
         if (!messageToSend.trim()) {
