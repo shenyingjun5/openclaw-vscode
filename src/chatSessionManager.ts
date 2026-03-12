@@ -340,13 +340,13 @@ export class ChatSessionManager {
                 parts.push(
                     `[VSCode 上下文]\n` +
                     `项目: ${projectName} (${workspaceDir})\n` +
-                    `代码/文件相关任务请在此目录操作。`
+                    `仅在此目录下执行代码/文件操作。`
                 );
             } else {
                 parts.push(
                     `[VSCode Context]\n` +
                     `Project: ${projectName} (${workspaceDir})\n` +
-                    `Operate in this directory for code/file tasks.`
+                    `Only Operate in this directory for code/file tasks.`
                 );
             }
         }
