@@ -203,18 +203,6 @@ export class ChatController {
                 await this._handleSelectFile();
                 break;
 
-            case 'handleDrop':
-                if (data.uris) {
-                    await this._handleUriDrop(data.uris);
-                } else if (data.files) {
-                    await this._handleFileDrop(data.files);
-                }
-                break;
-
-            case 'handleDropContent':
-                await this._handleDropContent(data.name, data.base64, data.mimeType);
-                break;
-
             case 'saveImage':
                 await this._saveImage(data.data, data.name);
                 break;

@@ -667,11 +667,6 @@ body {
     background: var(--vscode-input-background, #3c3c3c);
 }
 
-.input-box.drag-over {
-    border-color: var(--vscode-focusBorder);
-    background: var(--vscode-editor-selectionBackground);
-}
-
 .input-box textarea {
     width: 100%;
     min-height: 32px;
