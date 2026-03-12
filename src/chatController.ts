@@ -300,6 +300,9 @@ export class ChatController {
                 break;
 
             case 'reconnect':
+                // 重置业务层状态，解除 UI 卡死
+                this._resetSendingState();
+
                 try {
                     await this._gateway.reloadTokenAndReconnect();
                     // 连接成功：推送绿灯状态，清除错误信息
@@ -408,9 +411,6 @@ export class ChatController {
         try {
             await this._gateway.setSessionModel(this._sessionKey, model);
             vscode.window.showInformationMessage(`模型已切换为: ${model}`);
-
-            // 重新发送上下文设置（语言 + 工作区）
-            await this._sessionManager.sendContextSetup(this._gateway, this._sessionKey);
         } catch (err: any) {
             vscode.window.showErrorMessage(`模型切换失败: ${err.message || err}`);
         }
@@ -458,93 +458,103 @@ export class ChatController {
 
     // ========== 消息发送 ==========
 
+    /**
+     * 重置发送状态（reconnect / disconnect 时调用，解除 UI 卡死）
+     */
+    private _resetSendingState(): void {
+        this._isSending = false;
+        this._chatRunId = null;
+        this._removeChatEventListener();
+        this._webview?.postMessage({ type: 'sendingComplete' });
+    }
+
     private async _sendMessage(content: string) {
         if (this._isSending) return;
 
         this._isSending = true;
 
-        // 自动接受待处理的变更集
-        const changeManager = ChangeManager.getInstance();
-        await changeManager.autoAcceptPending();
+        try {
+            // 自动接受待处理的变更集
+            const changeManager = ChangeManager.getInstance();
+            await changeManager.autoAcceptPending();
 
-        // 解析 slash 命令
-        let forceSkillName: string | undefined;
-        let forceWorkflow = false;
-        let actualContent = content;
+            // 解析 slash 命令
+            let forceSkillName: string | undefined;
+            let forceWorkflow = false;
+            let actualContent = content;
 
-        const slashMatch = content.match(/^\/(\S+)\s*(.*)/);
-        if (slashMatch) {
-            const prefix = slashMatch[1];
-            const rest = slashMatch[2];
+            const slashMatch = content.match(/^\/(\S+)\s*(.*)/);
+            if (slashMatch) {
+                const prefix = slashMatch[1];
+                const rest = slashMatch[2];
 
-            if (prefix.startsWith('.')) {
-                forceWorkflow = true;
-                actualContent = rest;
-            } else {
-                forceSkillName = prefix;
-                actualContent = rest;
-            }
-        }
-
-        // 使用 SessionManager 构建消息
-        const { message: finalMessage, triggeredSkill } = this._sessionManager.buildMessage(
-            actualContent,
-            this._sessionKey,
-            forceSkillName,
-            forceWorkflow
-        );
-
-        // 如果 /xxx 没命中任何技能，按原文放行给 AI
-        const effectiveMessage = (forceSkillName && !triggeredSkill)
-            ? this._sessionManager.buildMessage(content, this._sessionKey, undefined, false).message
-            : finalMessage;
-
-        // 通知 UI 触发的技能
-        if (triggeredSkill) {
-            this._webview?.postMessage({
-                type: 'skillTriggered',
-                skill: {
-                    name: triggeredSkill.name,
-                    trigger: forceSkillName ? '/' + triggeredSkill.name : triggeredSkill.triggers.find(t =>
-                        actualContent.toLowerCase().includes(t.toLowerCase())
-                    ) || triggeredSkill.triggers[0]
+                if (prefix.startsWith('.')) {
+                    forceWorkflow = true;
+                    actualContent = rest;
+                } else {
+                    forceSkillName = prefix;
+                    actualContent = rest;
                 }
-            });
-        }
+            }
 
-        // Plan Mode 后缀
-        let messageToSend = effectiveMessage;
-
-        // 空消息检查
-        if (!messageToSend.trim()) {
-            this._webview?.postMessage({
-                type: 'error',
-                content: '消息内容为空',
-                context: 'send'
-            });
-            this._isSending = false;
-            this._webview?.postMessage({ type: 'sendingComplete' });
-            return;
-        }
-
-        if (this._planMode) {
-            const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
-            const isConfirm = confirmCommands.some(cmd =>
-                content.toLowerCase().trim() === cmd.toLowerCase()
+            // 使用 SessionManager 构建消息
+            const { message: finalMessage, triggeredSkill } = this._sessionManager.buildMessage(
+                actualContent,
+                this._sessionKey,
+                forceSkillName,
+                forceWorkflow
             );
 
-            if (!isConfirm) {
-                const isZh = getLocale() === 'zh';
-                const customPrompt = vscode.workspace.getConfiguration('openclaw').get<string>('planModePrompt', '').trim();
-                const marker = isZh ? '---- 计划模式 ----' : '---- Plan Mode ----';
-                const body = customPrompt || (isZh
-                    ? '⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败'
-                    : '⚠️ Do Not Execute - Plan Only\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say "execute" before calling tools\n\nViolation = Task failed');
-                messageToSend += `\n\n${marker}\n${body}\n${marker}`;
-            }
-        }
+            // 如果 /xxx 没命中任何技能，按原文放行给 AI
+            const effectiveMessage = (forceSkillName && !triggeredSkill)
+                ? this._sessionManager.buildMessage(content, this._sessionKey, undefined, false).message
+                : finalMessage;
 
-        try {
+            // 通知 UI 触发的技能
+            if (triggeredSkill) {
+                this._webview?.postMessage({
+                    type: 'skillTriggered',
+                    skill: {
+                        name: triggeredSkill.name,
+                        trigger: forceSkillName ? '/' + triggeredSkill.name : triggeredSkill.triggers.find(t =>
+                            actualContent.toLowerCase().includes(t.toLowerCase())
+                        ) || triggeredSkill.triggers[0]
+                    }
+                });
+            }
+
+            // Plan Mode 后缀
+            let messageToSend = effectiveMessage;
+
+            // 空消息检查
+            if (!messageToSend.trim()) {
+                this._webview?.postMessage({
+                    type: 'error',
+                    content: '消息内容为空',
+                    context: 'send'
+                });
+                this._isSending = false;
+                this._webview?.postMessage({ type: 'sendingComplete' });
+                return;
+            }
+
+            if (this._planMode) {
+                const confirmCommands = ['执行', '继续', '确认', '开始', 'go', 'yes', 'ok', 'y', 'execute', 'run'];
+                const isConfirm = confirmCommands.some(cmd =>
+                    content.toLowerCase().trim() === cmd.toLowerCase()
+                );
+
+                if (!isConfirm) {
+                    const isZh = getLocale() === 'zh';
+                    const customPrompt = vscode.workspace.getConfiguration('openclaw').get<string>('planModePrompt', '').trim();
+                    const marker = isZh ? '---- 计划模式 ----' : '---- Plan Mode ----';
+                    const body = customPrompt || (isZh
+                        ? '⚠️ 请勿执行，仅输出计划\n\n要求：\n1. 仅输出计划，不要调用任何工具\n2. 列出每个步骤及其影响\n3. 等用户说"执行"后再调用工具\n\n违反 = 任务失败'
+                        : '⚠️ Do Not Execute - Plan Only\n\nYou must:\n1. Output plan only, do not call any tools\n2. List each step and its impact\n3. Wait for user to say "execute" before calling tools\n\nViolation = Task failed');
+                    messageToSend += `\n\n${marker}\n${body}\n${marker}`;
+                }
+            }
+
             // 先生成 runId 并设置状态 + 监听器（对齐 WebChat：避免 chat 事件先于 RPC 响应到达时被跳过）
             const runId = crypto.randomUUID();
             this._chatRunId = runId;

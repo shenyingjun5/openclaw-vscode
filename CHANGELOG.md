@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [0.2.22] - 2026-03-12
+
+### Fixed - 修复 🐛
+
+#### 断线重连后发送卡死修复 🔄
+- **重连前重置发送状态** — 点击“重新连接”时主动重置 `_isSending`、`_chatRunId` 和 chat 监听器，避免 UI 一直处于发送中
+- **连接断开主动通知业务层** — WebSocket 关闭时向 chat 事件处理器发送 `state: error`，触发上层恢复逻辑
+- **Reconnect state reset** — Reset `_isSending`, `_chatRunId`, and chat listener before reconnect to prevent stuck sending UI
+- **Disconnect error propagation** — Emit `state: error` to chat handlers on WebSocket close so upper layer can recover immediately
+
+### Changed - 修改 🔄
+
+#### 模型切换行为优化 ⚙️
+- **移除重复上下文注入** — 切换模型后不再重复发送上下文 setup，减少额外 RPC 并降低干扰
+- **Remove redundant context setup** — Stop re-sending context setup after model switch to reduce unnecessary RPC calls
+
 ## [0.2.21] - 2026-03-11
 
 ### Added - 新增 ✨

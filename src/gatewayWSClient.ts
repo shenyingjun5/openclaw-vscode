@@ -229,6 +229,21 @@ export class GatewayWSClient {
             pending.reject(new Error('Connection closed'));
         }
         this.pendingRequests.clear();
+
+        // 通知 chat 事件监听器连接已断开（让 ChatController 能重置状态）
+        const chatHandlers = this.eventHandlers.get('chat');
+        if (chatHandlers) {
+            for (const handler of chatHandlers) {
+                try {
+                    handler({ state: 'error', errorMessage: 'Connection closed' });
+                } catch (err) {
+                    console.error('[GatewayWS] Error notifying chat handler on disconnect:', err);
+                }
+            }
+        }
+
+        // 清理所有事件监听器（防止残留引用）
+        this.eventHandlers.clear();
     }
 
     private _nextId(): string {

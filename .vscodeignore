@@ -1,6 +1,14 @@
 .vscode/**
 .vscode-test/**
 src/**
+.git/**
+.github/**
+.claude/**
+.openclaw/**
+.ovsx-token
+.vscode-token
+.env
+.env.*
 .gitignore
 .eslintrc.json
 tsconfig.json
@@ -11,6 +19,5 @@ node_modules/**
 !node_modules/js-yaml/**
 PUBLISH.md
 *.vsix
-.ovsx-token
 test-*.mjs
 test-*.cjs
