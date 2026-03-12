@@ -38,6 +38,7 @@ export class GatewayClient {
     private _lastError: string = '';
     private _connectedUrl: string = '';
     private _pendingChatHandlers: Set<(payload: any) => void> = new Set();
+    private _resolvedProfile: string | null | undefined = undefined; // undefined=未检测, null=单网关/无匹配
 
     constructor(baseUrl: string, customPath?: string) {
         this._baseUrl = baseUrl;
@@ -66,6 +67,13 @@ export class GatewayClient {
      */
     public getMode(): 'cli' | 'ws' {
         return this._mode;
+    }
+
+    /**
+     * 获取当前匹配的 profile 名称（多网关场景返回 profile 名，单网关返回 null）
+     */
+    public getProfileName(): string | null {
+        return this._resolveProfileName();
     }
 
     /**
@@ -137,6 +145,59 @@ export class GatewayClient {
             console.warn('[Gateway] Failed to read gateway token:', err);
         }
         return undefined;
+    }
+
+    /**
+     * 解析当前 gatewayUrl 对应的 profile 名称（多网关场景）
+     * 逻辑：profiles 目录下有 >1 个 profile 时认为是多网关，按端口匹配
+     * 结果缓存，只在首次或 reloadTokenAndReconnect 时重新计算
+     */
+    private _resolveProfileName(): string | null {
+        if (this._resolvedProfile !== undefined) {
+            return this._resolvedProfile;
+        }
+
+        this._resolvedProfile = null; // 默认：不需要指定 profile
+
+        try {
+            const profilesDir = path.join(os.homedir(), '.openclaw', 'profiles');
+            if (!fs.existsSync(profilesDir)) { return null; }
+
+            const profiles = fs.readdirSync(profilesDir).filter(p => {
+                return fs.existsSync(path.join(profilesDir, p, 'openclaw.json'));
+            });
+
+            // 单 profile 或无 profile → 不需要指定
+            if (profiles.length <= 1) { return null; }
+
+            // 多 profile：按端口匹配
+            let targetPort: number | null = null;
+            try {
+                const url = new URL(this._baseUrl);
+                targetPort = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+            } catch {
+                return null;
+            }
+
+            for (const profile of profiles) {
+                try {
+                    const configPath = path.join(profilesDir, profile, 'openclaw.json');
+                    const content = fs.readFileSync(configPath, 'utf-8');
+                    const config = JSON.parse(content);
+                    if (config?.gateway?.port === targetPort) {
+                        console.log(`[Gateway] Resolved profile: ${profile} (port ${targetPort})`);
+                        this._resolvedProfile = profile;
+                        return profile;
+                    }
+                } catch {
+                    // 单个 profile 解析失败，继续
+                }
+            }
+        } catch (err) {
+            console.warn('[Gateway] Failed to resolve profile:', err);
+        }
+
+        return null;
     }
 
     /**
@@ -257,17 +318,21 @@ export class GatewayClient {
         const isWindows = process.platform === 'win32';
         const isCmdFile = this._openclawPath.endsWith('.cmd');
 
+        // 多网关场景：注入 --profile 参数
+        const profile = this._resolveProfileName();
+        const finalArgs = profile ? ['--profile', profile, ...args] : args;
+
         if (isWindows && isCmdFile) {
             // Windows .cmd 文件需要通过 cmd.exe /c 执行
             return {
                 cmd: 'cmd.exe',
-                args: ['/c', this._openclawPath, ...args]
+                args: ['/c', this._openclawPath, ...finalArgs]
             };
         }
 
         return {
             cmd: this._openclawPath,
-            args: args
+            args: finalArgs
         };
     }
 
@@ -369,6 +434,7 @@ export class GatewayClient {
             this._baseUrl = newBaseUrl;
         }
         this._gatewayToken = this._readGatewayToken();
+        this._resolvedProfile = undefined; // 重置 profile 缓存
         // 断开旧连接
         if (this._wsClient) {
             this._wsClient.disconnect();

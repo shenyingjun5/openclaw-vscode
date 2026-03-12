@@ -54,9 +54,9 @@ export class AgentManager {
             return this.agentsCache;
         }
 
-        try {
-            // 方式1：通过 Gateway RPC API
-            if (this.gateway && this.gateway.isConnected()) {
+        // 方式1：通过 Gateway RPC API（多网关场景下唯一可靠来源）
+        if (this.gateway && this.gateway.isConnected()) {
+            try {
                 const result = await this.gateway.sendRpc('agents.list', {});
 
                 this.agentsCache = result.agents.map((a: any) => ({
@@ -71,33 +71,84 @@ export class AgentManager {
 
                 this.cacheTimestamp = now;
                 return this.agentsCache;
+            } catch (err) {
+                console.error('[AgentManager] RPC agents.list failed:', err);
             }
-
-            // 方式2：通过 CLI 命令
-            const { stdout } = await execAsync('openclaw agents list --json');
-            const agents = JSON.parse(stdout);
-
-            this.agentsCache = agents.map((a: any) => ({
-                id: a.id,
-                name: a.identityName || a.name || a.id,
-                emoji: a.identityEmoji || '🤖',
-                description: '',
-                workspace: a.workspace,
-                model: a.model,
-                isDefault: a.isDefault || false
-            }));
-
-            this.cacheTimestamp = now;
-            return this.agentsCache;
-        } catch (err) {
-            console.error('[AgentManager] Failed to get agents via RPC/CLI:', err);
-
-            // 方式3（托底）：直接读取文件系统
-            const fsAgents = await this._getAgentsFromFileSystem();
-            this.agentsCache = fsAgents;
-            this.cacheTimestamp = now;
-            return fsAgents;
         }
+
+        // 方式2：从 profile 配置文件读取（按端口匹配，多网关安全）
+        const profileAgents = this._getAgentsFromProfileConfig();
+        if (profileAgents.length > 0) {
+            console.log('[AgentManager] Loaded agents from profile config');
+            this.agentsCache = profileAgents;
+            this.cacheTimestamp = now;
+            return profileAgents;
+        }
+
+        // 方式3（最终托底）：直接读取文件系统
+        // 注意：~/.openclaw/workspace/agents/ 为所有 Gateway 实例共享
+        console.warn('[AgentManager] Falling back to filesystem (shared across gateways)');
+        const fsAgents = await this._getAgentsFromFileSystem();
+        this.agentsCache = fsAgents;
+        this.cacheTimestamp = now;
+        return fsAgents;
+    }
+
+    /**
+     * 从 profile 配置文件读取 Agent 列表（按端口匹配当前 Gateway）
+     * 复用 gateway.ts _readGatewayToken() 的端口匹配逻辑
+     */
+    private _getAgentsFromProfileConfig(): AgentInfo[] {
+        // 从 VSCode 设置读取当前 gatewayUrl，解析端口
+        let targetPort: number | null = null;
+        try {
+            const gatewayUrl = vscode.workspace.getConfiguration('openclaw').get<string>('gatewayUrl') || 'http://localhost:18789';
+            const url = new URL(gatewayUrl);
+            targetPort = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+        } catch {
+            return [];
+        }
+
+        if (!targetPort) { return []; }
+
+        // 扫描 profiles 目录，按端口匹配
+        try {
+            const profilesDir = path.join(os.homedir(), '.openclaw', 'profiles');
+            if (!fs.existsSync(profilesDir)) { return []; }
+
+            const profiles = fs.readdirSync(profilesDir);
+            for (const profile of profiles) {
+                const profileConfig = path.join(profilesDir, profile, 'openclaw.json');
+                if (!fs.existsSync(profileConfig)) { continue; }
+                try {
+                    const content = fs.readFileSync(profileConfig, 'utf-8');
+                    const config = JSON.parse(content);
+                    const port = config?.gateway?.port;
+                    if (port !== targetPort) { continue; }
+
+                    // 端口匹配，读取 agents.list
+                    const agentsList: any[] = config?.agents?.list || [];
+                    if (agentsList.length === 0) { continue; }
+
+                    console.log(`[AgentManager] Matched profile: ${profile} (port ${port})`);
+                    return agentsList.map((a: any) => ({
+                        id: a.id,
+                        name: a.name || a.id,
+                        emoji: '🤖', // 配置文件里没有 emoji，使用默认
+                        description: '',
+                        workspace: a.workspace || '',
+                        model: typeof a.model === 'string' ? a.model : a.model?.primary || undefined,
+                        isDefault: a.id === 'main'
+                    }));
+                } catch {
+                    // 单个 profile 解析失败，继续下一个
+                }
+            }
+        } catch (err) {
+            console.warn('[AgentManager] Failed to scan profiles:', err);
+        }
+
+        return [];
     }
 
     /**
@@ -217,7 +268,8 @@ export class AgentManager {
 
             // 方式2：通过 CLI 创建 agent（兜底）
             const workspace = `~/.openclaw/workspace/agents/${config.id}`;
-            await execAsync(`openclaw agents add ${config.id} --non-interactive --workspace ${workspace}`);
+            const profileFlag = this.gateway?.getProfileName?.() ? `--profile ${this.gateway.getProfileName()}` : '';
+            await execAsync(`openclaw ${profileFlag} agents add ${config.id} --non-interactive --workspace ${workspace}`);
 
             // 写入 IDENTITY.md
             const agentPath = path.join(os.homedir(), '.openclaw', 'workspace', 'agents', config.id);

@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [0.2.23] - 2026-03-12
+
+### Changed - 修改 🔄
+
+#### 多网关 Profile 匹配增强
+- **Agent 列表来源优化** — `agents.list` 优先走 Gateway RPC；失败时按当前 Gateway 端口匹配 profile 配置，最后再回退文件系统
+- **安全回退路径** — 多 Gateway 场景下避免直接读取共享 `~/.openclaw/workspace/agents` 导致串数据
+- **Profile-aware agent loading** — Prefer Gateway RPC; fallback to profile config matched by gateway port; filesystem as last resort
+- **Safer fallback chain** — Avoid cross-gateway contamination from shared workspace scan
+
+#### CLI 执行注入 `--profile`
+- **自动注入 profile 参数** — 在多 profile 场景，CLI 兜底命令自动追加 `--profile <name>`
+- **重连后重新解析** — `reloadTokenAndReconnect` 时重置 profile 缓存，按新网关地址重新匹配
+- **Auto profile injection** — CLI fallback commands now append `--profile <name>` in multi-profile setups
+- **Re-resolve on reconnect** — Profile cache resets on reconnect and re-matches by gateway URL/port
+
+### Fixed - 修复 🐛
+
+#### Agent 创建 CLI 兜底兼容
+- **创建命令补齐 profile** — `openclaw agents add` 兜底路径支持按当前网关 profile 执行，避免写入错误实例
+- **Profile-aware create fallback** — Agent creation via CLI now targets the correct profile instance
+
 ## [0.2.22] - 2026-03-12
 
 ### Fixed - 修复 🐛
