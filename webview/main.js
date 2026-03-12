@@ -1506,8 +1506,15 @@ Try:
 
             const text = messageInput.value.trim();
 
-            // 输入框为空 → 不做任何动作
+            // 输入框为空
             if (!text && attachments.length === 0) {
+                // Plan mode: ถ้ามีประวัติข้อความแล้ว กด enter = ส่ง "execute"
+                if (planMode && messages && messages.children && messages.children.length > 0) {
+                    messageInput.value = 'execute';
+                    sendMessage();
+                    return;
+                }
+                // ถ้าไม่ใช่กรณี above ไม่ทำอะไร
                 return;
             }
 
