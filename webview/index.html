@@ -23,10 +23,6 @@
         <symbol id="icon-stop" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="6" width="12" height="12" rx="1" />
         </symbol>
-        <!-- 执行/播放图标 -->
-        <symbol id="icon-play" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
-        </symbol>
         <!-- 附件图标 -->
         <symbol id="icon-attach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
@@ -137,15 +133,16 @@
                     </div>
                 </div>
             </div>
-            <button class="execute-btn" id="executeBtn" data-i18n-title="execute" style="display: none;">
-                <svg class="execute-icon"><use href="#icon-play"/></svg>
-            </button><button class="send-btn" id="sendBtn" data-i18n-title="send">
+            <button class="send-btn" id="sendBtn" data-i18n-title="send">
                 <svg class="send-icon">
                     <use href="#icon-send" />
                 </svg>
                 <svg class="stop-icon">
                     <use href="#icon-stop" />
                 </svg>
+            </button>
+            <button class="execute-btn" id="executeBtn" data-i18n-title="execute" style="display: none;">
+                <span class="execute-text">▶ Execute</span>
             </button>
         </div>
     </div>

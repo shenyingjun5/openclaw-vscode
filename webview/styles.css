@@ -909,32 +909,23 @@ body {
 
 /* Execute button for Plan mode */
 .execute-btn {
-    width: 32px;
-    height: 32px;
-    border: none;
-    border-radius: var(--border-radius);
-    background: var(--send-btn-active);
-    color: white;
-    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
-    flex-shrink: 0;
-    margin-left: 4px;
-}
-
-.execute-btn svg {
-    width: 14px;
-    height: 14px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: var(--send-btn-active);
+    color: white;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: background 0.2s, opacity 0.2s;
 }
 
 .execute-btn:hover {
     background: #16a34a;
-}
-
-.execute-text {
-    display: none;
 }
 
 .execute-btn:active {
