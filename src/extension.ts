@@ -50,6 +50,17 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('openclaw.selectAgent', () =>
             selectAgent(gatewayClient, chatProvider, agentStatusBar)
+        ),
+
+        // Group chat commands
+        vscode.commands.registerCommand('openclaw.addAgentToGroup', () =>
+            addAgentToGroup(gatewayClient, chatProvider)
+        ),
+        vscode.commands.registerCommand('openclaw.removeAgentFromGroup', () =>
+            removeAgentFromGroup(chatProvider)
+        ),
+        vscode.commands.registerCommand('openclaw.leaveGroupChat', () =>
+            leaveGroupChat(chatProvider)
         )
     );
 
@@ -244,6 +255,108 @@ async function selectAgent(
 
     // Update status bar
     updateAgentStatusBar(statusBar);
+}
+
+/**
+ * Add an agent to the group chat.
+ * Shows QuickPick of available agents, filtered to exclude already-in-group agents.
+ */
+async function addAgentToGroup(
+    gatewayClient: GatewayClient,
+    chatProvider: ChatViewProvider
+) {
+    const { GroupChatManager } = await import('./groupChatManager');
+    const groupManager = GroupChatManager.getInstance();
+
+    // Fetch all available agents
+    let agents: Array<{ id: string; name?: string }> = [];
+    try {
+        agents = await gatewayClient.getAgentList();
+    } catch {
+        agents = [{ id: 'main' }];
+    }
+
+    // Filter out agents already in the group
+    const currentAgents = groupManager.getAgents().map(a => a.agentId);
+    const available = agents.filter(a => !currentAgents.includes(a.id));
+
+    if (available.length === 0) {
+        vscode.window.showInformationMessage('All available agents are already in the group.');
+        return;
+    }
+
+    const items: vscode.QuickPickItem[] = available.map(agent => ({
+        label: agent.name ? `$(person) ${agent.name} (${agent.id})` : `$(person) ${agent.id}`,
+        description: `agent:${agent.id}`,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        title: 'OpenClaw — Add Agent to Group Chat',
+        placeHolder: 'Select an agent to add...',
+    });
+
+    if (!selected) {
+        return;
+    }
+
+    // Extract agent id from description
+    const agentId = (selected.description || '').replace('agent:', '').trim();
+    if (!agentId) {
+        return;
+    }
+
+    await chatProvider.addAgentToGroup(agentId);
+}
+
+/**
+ * Remove an agent from the group chat.
+ */
+async function removeAgentFromGroup(chatProvider: ChatViewProvider) {
+    const { GroupChatManager } = await import('./groupChatManager');
+    const groupManager = GroupChatManager.getInstance();
+    const current = groupManager.getAgents();
+
+    if (current.length === 0) {
+        vscode.window.showInformationMessage('No agents in the group chat.');
+        return;
+    }
+
+    const items: vscode.QuickPickItem[] = current.map(agent => ({
+        label: `$(person) ${agent.name || agent.agentId}`,
+        description: agent.agentId,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        title: 'OpenClaw — Remove Agent from Group Chat',
+        placeHolder: 'Select an agent to remove...',
+    });
+
+    if (!selected) {
+        return;
+    }
+
+    const agentId = selected.description || '';
+    if (!agentId) {
+        return;
+    }
+
+    chatProvider.removeAgentFromGroup(agentId);
+    vscode.window.showInformationMessage(`OpenClaw Group: Removed agent "${selected.label.replace(/^\$\([^)]+\)\s*/, '')}"`);
+}
+
+/**
+ * Leave the group chat (clear all agents and messages).
+ */
+async function leaveGroupChat(chatProvider: ChatViewProvider) {
+    const confirm = await vscode.window.showWarningMessage(
+        'Leave group chat? All group messages will be cleared.',
+        { modal: false },
+        'Leave'
+    );
+    if (confirm === 'Leave') {
+        chatProvider.leaveGroupChat();
+        vscode.window.showInformationMessage('OpenClaw: Left group chat.');
+    }
 }
 
 function togglePlanMode() {

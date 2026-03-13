@@ -608,6 +608,7 @@ body {
     background: var(--vscode-sideBar-background, #252526);
     padding: 8px;
     flex-shrink: 0;
+    position: relative; /* needed for mention-picker absolute positioning */
 }
 
 /* Attachments preview */
@@ -1812,4 +1813,219 @@ body {
     font-size: 14px;
     color: var(--vscode-foreground, #cccccc);
     font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GROUP CHAT STYLES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Group member bar */
+.group-member-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--vscode-sideBar-background, #252526);
+    border-bottom: 1px solid var(--vscode-panel-border, #2d2d2d);
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.group-member-bar::-webkit-scrollbar { display: none; }
+
+.group-members {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.group-members::-webkit-scrollbar { display: none; }
+
+.group-member-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 12px;
+    background: var(--vscode-badge-background, #2d2d2d);
+    font-size: 11px;
+    cursor: default;
+    user-select: none;
+    flex-shrink: 0;
+    max-width: 120px;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+}
+.group-member-badge:hover {
+    border-color: var(--vscode-focusBorder, #007acc33);
+}
+
+.group-member-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.group-member-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.group-member-remove {
+    opacity: 0;
+    transition: opacity 0.15s;
+    font-size: 11px;
+    color: var(--vscode-errorForeground, #f87171);
+    padding-left: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1;
+}
+.group-member-badge:hover .group-member-remove {
+    opacity: 0.8;
+}
+.group-member-remove:hover {
+    opacity: 1 !important;
+}
+
+.group-add-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px dashed var(--vscode-panel-border, #555);
+    background: transparent;
+    color: var(--vscode-foreground, #ccc);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+.group-add-btn:hover {
+    background: var(--vscode-button-hoverBackground, #2a2d2e);
+    border-color: var(--vscode-focusBorder, #007acc);
+    color: var(--vscode-focusBorder, #007acc);
+}
+
+/* Group agent message */
+.message.group-agent {
+    background: transparent;
+    padding: var(--message-padding);
+}
+
+.group-agent-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.group-agent-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+
+.group-agent-name {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+/* Agent thinking indicator in group */
+.agent-thinking {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    opacity: 0.7;
+    font-size: 11px;
+}
+
+.agent-thinking-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+
+/* @mention badge in user message */
+.mention-badge {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: white;
+    opacity: 0.9;
+}
+
+/* @ mention picker */
+.mention-picker {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--vscode-dropdown-background, #2d2d2d);
+    border: 1px solid var(--vscode-panel-border, #444);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 200;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.35);
+}
+
+.mention-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.1s;
+}
+.mention-picker-item:hover,
+.mention-picker-item.active {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.mention-picker-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.mention-picker-name {
+    font-weight: 500;
+}
+
+.mention-picker-id {
+    opacity: 0.5;
+    font-size: 10px;
 }

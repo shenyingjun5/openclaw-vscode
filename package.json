@@ -99,6 +99,19 @@
       {
         "command": "openclaw.selectAgent",
         "title": "%command.selectAgent.title%"
+      },
+      {
+        "command": "openclaw.addAgentToGroup",
+        "title": "%command.addAgentToGroup.title%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "openclaw.removeAgentFromGroup",
+        "title": "%command.removeAgentFromGroup.title%"
+      },
+      {
+        "command": "openclaw.leaveGroupChat",
+        "title": "%command.leaveGroupChat.title%"
       }
     ],
     "menus": {
@@ -194,6 +207,16 @@
           "type": "string",
           "default": "main",
           "description": "%config.agentId.description%"
+        },
+        "openclaw.groupChat.contextMessages": {
+          "type": "number",
+          "default": 20,
+          "description": "%config.groupChat.contextMessages.description%"
+        },
+        "openclaw.groupChat.broadcastByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.groupChat.broadcastByDefault.description%"
         }
       }
     }

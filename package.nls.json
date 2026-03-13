@@ -26,5 +26,10 @@
   "command.showConnectionStatus.title": "Show Connection Status",
   "command.closeChat.title": "Close Chat",
   "command.selectAgent.title": "Select Agent",
-  "config.agentId.description": "Agent ID to connect to (e.g. main, alice). Default: main."
+  "config.agentId.description": "Agent ID to connect to (e.g. main, alice). Default: main.",
+  "command.addAgentToGroup.title": "OpenClaw: Add Agent to Group Chat",
+  "command.removeAgentFromGroup.title": "OpenClaw: Remove Agent from Group Chat",
+  "command.leaveGroupChat.title": "OpenClaw: Leave Group Chat",
+  "config.groupChat.contextMessages.description": "Number of recent group messages to inject as context for each agent reply (default: 20).",
+  "config.groupChat.broadcastByDefault.description": "When no @mention is used, broadcast the message to all agents in the group (default: true)."
 }

@@ -107,6 +107,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await this._controller.sendFile();
     }
 
+    public async addAgentToGroup(agentId: string): Promise<void> {
+        await this._controller.addAgentToGroup(agentId);
+    }
+
+    public removeAgentFromGroup(agentId: string): void {
+        this._controller.removeAgentFromGroup(agentId);
+    }
+
+    public leaveGroupChat(): void {
+        this._controller.leaveGroupChat();
+    }
+
     public async closeChat() {
         // 1. deleteSession on Gateway
         this._gateway.deleteSession(this._controller.sessionKey).catch(() => {});

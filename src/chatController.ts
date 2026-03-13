@@ -7,6 +7,7 @@ import { ChangeManager } from './changeManager';
 import { DiffProvider } from './diffProvider';
 import { LanguageManager } from './languageManager';
 import { getAgentId, buildSessionKey } from './agentConfig';
+import { GroupChatManager, GroupMessage, AgentMember } from './groupChatManager';
 
 // i18n helper - 语言跟随 openclaw.aiOutputLanguage 设置
 function getLocale(): string {
@@ -95,6 +96,11 @@ export class ChatController {
     private _webview: WebviewAdapter | null = null;
     private _disposables: vscode.Disposable[] = [];
 
+    // Group chat
+    private _groupManager: GroupChatManager;
+    private _groupMessageCallback: ((msg: GroupMessage) => void) | null = null;
+    private _groupStateCallback: ((agents: AgentMember[]) => void) | null = null;
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _gateway: GatewayClient,
@@ -103,6 +109,13 @@ export class ChatController {
     ) {
         const config = vscode.workspace.getConfiguration('openclaw');
         this._planMode = config.get<boolean>('planMode') || false;
+
+        // Initialize group chat manager singleton
+        this._groupManager = GroupChatManager.getInstance();
+        const windowId = _sessionKey.includes('vscode-main-')
+            ? _sessionKey.split('vscode-main-')[1]
+            : _sessionKey.split('-').pop() || 'default';
+        this._groupManager.initialize(_gateway, windowId);
 
         // 监听语言设置变化，实时更新 UI 并重新发送上下文
         this._disposables.push(
@@ -131,6 +144,29 @@ export class ChatController {
      */
     setWebview(webview: WebviewAdapter) {
         this._webview = webview;
+        this._registerGroupCallbacks();
+    }
+
+    private _registerGroupCallbacks(): void {
+        // Remove old callbacks
+        if (this._groupMessageCallback) {
+            this._groupManager.offMessage(this._groupMessageCallback);
+        }
+        if (this._groupStateCallback) {
+            this._groupManager.offStateChange(this._groupStateCallback);
+        }
+
+        // Group message → forward to webview
+        this._groupMessageCallback = (msg: GroupMessage) => {
+            this._webview?.postMessage({ type: 'groupMessage', ...msg });
+        };
+        this._groupManager.onMessage(this._groupMessageCallback);
+
+        // Group state change (agents added/removed) → notify webview
+        this._groupStateCallback = (agents: AgentMember[]) => {
+            this._webview?.postMessage({ type: 'groupStateUpdate', agents });
+        };
+        this._groupManager.onStateChange(this._groupStateCallback);
     }
 
     get sessionKey(): string {
@@ -257,6 +293,33 @@ export class ChatController {
                 if (data.url && typeof data.url === 'string') {
                     vscode.env.openExternal(vscode.Uri.parse(data.url));
                 }
+                break;
+
+            // ── Group chat ────────────────────────────────────────────────────
+            case 'addAgentToGroup':
+                vscode.commands.executeCommand('openclaw.addAgentToGroup');
+                break;
+
+            case 'removeAgentFromGroup':
+                if (data.agentId) {
+                    this._groupManager.removeAgent(data.agentId);
+                }
+                break;
+
+            case 'leaveGroupChat':
+                this._groupManager.leaveGroup();
+                this._webview?.postMessage({ type: 'groupStateUpdate', agents: [] });
+                break;
+
+            case 'getGroupAgents':
+                this._webview?.postMessage({
+                    type: 'groupStateUpdate',
+                    agents: this._groupManager.getAgents(),
+                });
+                break;
+
+            case 'sendGroupMessage':
+                await this._sendGroupMessage(data.content);
                 break;
 
             case 'openFile':
@@ -856,8 +919,55 @@ export class ChatController {
         await this._sendMessage(content);
     }
 
+    // ── Group chat public API ─────────────────────────────────────────────────
+
+    public async addAgentToGroup(agentId: string): Promise<void> {
+        const member = await this._groupManager.addAgent(agentId);
+        this._webview?.postMessage({
+            type: 'groupStateUpdate',
+            agents: this._groupManager.getAgents(),
+        });
+        vscode.window.showInformationMessage(
+            `OpenClaw Group: Added agent "${member.name || member.agentId}"`
+        );
+    }
+
+    public removeAgentFromGroup(agentId: string): void {
+        this._groupManager.removeAgent(agentId);
+    }
+
+    public leaveGroupChat(): void {
+        this._groupManager.leaveGroup();
+        this._webview?.postMessage({ type: 'groupStateUpdate', agents: [] });
+    }
+
+    // ── Group message send ────────────────────────────────────────────────────
+
+    private async _sendGroupMessage(content: string): Promise<void> {
+        if (!content.trim()) {
+            return;
+        }
+        try {
+            const runIds = await this._groupManager.sendGroupMessage(content);
+            const agentIds = Array.from(runIds.keys());
+            this._webview?.postMessage({ type: 'waitingGroupReply', agentIds });
+        } catch (err: any) {
+            this._webview?.postMessage({
+                type: 'error',
+                content: err.message || String(err),
+                context: 'group_send',
+            });
+        }
+    }
+
     public dispose() {
         this._removeChatEventListener();
+        if (this._groupMessageCallback) {
+            this._groupManager.offMessage(this._groupMessageCallback);
+        }
+        if (this._groupStateCallback) {
+            this._groupManager.offStateChange(this._groupStateCallback);
+        }
         for (const d of this._disposables) {
             d.dispose();
         }

@@ -44,7 +44,12 @@
         'think.low': 'Low',
         'think.medium': 'Medium',
         'think.high': 'High',
-        'think.xhigh': 'Extra High'
+        'think.xhigh': 'Extra High',
+        addAgent: 'Add agent to group',
+        removeAgent: 'Remove from group',
+        groupChat: 'Group Chat',
+        groupModeHint: 'Use @name to mention a specific agent',
+        leaveGroup: 'Leave group'
     };
 
     // Load locale
@@ -88,7 +93,12 @@
                 'think.low': '低',
                 'think.medium': '中',
                 'think.high': '高',
-                'think.xhigh': '超高'
+                'think.xhigh': '超高',
+                addAgent: '添加助手到群组',
+                removeAgent: '从群组移除',
+                groupChat: '群组对话',
+                groupModeHint: '使用 @名称 提及特定助手',
+                leaveGroup: '离开群组'
             };
         }
         applyI18n();
@@ -118,6 +128,12 @@
     // State
     let isSending = false;     // chat.send RPC 正在发送
     let planMode = false;
+
+    // Group chat state
+    let groupMode = false;
+    let groupAgents = [];        // Array of { agentId, name, avatar, color }
+    let groupWaitingIds = new Set(); // agentIds currently generating reply
+    let mentionPickerIndex = 0;  // selected index in mention picker
     let attachments = []; // { type: 'file'|'image'|'reference', name, path?, data? }
     let messageQueue = []; // 消息队列: { id, text, attachments, createdAt }
     let queueIdCounter = 0; // 队列 ID 计数器
@@ -189,6 +205,13 @@
     const statusPopupHeader = document.getElementById('statusPopupHeader');
     const statusPopupDesc = document.getElementById('statusPopupDesc');
     const statusPopupActions = document.getElementById('statusPopupActions');
+
+    // Group chat DOM
+    const groupMemberBar = document.getElementById('groupMemberBar');
+    const groupMembersEl = document.getElementById('groupMembers');
+    const groupAddBtn = document.getElementById('groupAddBtn');
+    const mentionPickerEl = document.getElementById('mentionPicker');
+    const mentionPickerList = document.getElementById('mentionPickerList');
 
     // Escape HTML for XSS prevention (text nodes)
     function escapeHtml(text) {
@@ -507,6 +530,259 @@
     function scrollToBottom() {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  GROUP CHAT
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Render a group agent message bubble.
+     */
+    function renderGroupMessage(msg) {
+        if (!msg || msg.role === 'user') {
+            // User messages in group chat use the normal addMessage flow
+            if (msg && msg.role === 'user') {
+                addMessage('user', msg.content);
+            }
+            return;
+        }
+
+        // Empty content = error/aborted, remove thinking indicator for that agent
+        if (!msg.content) {
+            removeAgentThinking(msg.agentId);
+            return;
+        }
+
+        removeAgentThinking(msg.agentId);
+
+        const wasAtBottom = isScrolledToBottom();
+        const div = document.createElement('div');
+        div.className = 'message group-agent';
+        div.dataset.agentId = msg.agentId || '';
+
+        const initial = (msg.agentName || msg.agentId || '?').charAt(0).toUpperCase();
+        const color = escapeHtml(msg.agentColor || '#888');
+        const name = escapeHtml(msg.agentName || msg.agentId || 'Agent');
+
+        let html = `<div class="group-agent-header">`;
+        html += `<div class="group-agent-avatar" style="background:${color}">${escapeHtml(initial)}</div>`;
+        html += `<span class="group-agent-name" style="color:${color}">${name}</span>`;
+        html += `</div>`;
+        html += renderMarkdown(msg.content);
+
+        div.innerHTML = html;
+        messages.appendChild(div);
+
+        if (wasAtBottom) { scrollToBottom(); }
+    }
+
+    /**
+     * Show a per-agent thinking indicator.
+     */
+    function showAgentThinking(agentId) {
+        const agent = groupAgents.find(a => a.agentId === agentId);
+        if (!agent) { return; }
+
+        const existingId = `agent-thinking-${agentId}`;
+        if (document.getElementById(existingId)) { return; }
+
+        const wasAtBottom = isScrolledToBottom();
+        const div = document.createElement('div');
+        div.className = 'agent-thinking';
+        div.id = existingId;
+
+        const initial = (agent.name || agentId).charAt(0).toUpperCase();
+        const color = escapeHtml(agent.color || '#888');
+        const name = escapeHtml(agent.name || agentId);
+
+        div.innerHTML = `
+            <div class="agent-thinking-avatar" style="background:${color}">${escapeHtml(initial)}</div>
+            <span style="color:${color}">${name}</span>
+            <div class="thinking-dots"><span></span><span></span><span></span></div>
+        `;
+        messages.appendChild(div);
+        if (wasAtBottom) { scrollToBottom(); }
+    }
+
+    /**
+     * Remove per-agent thinking indicator.
+     */
+    function removeAgentThinking(agentId) {
+        const el = document.getElementById(`agent-thinking-${agentId}`);
+        if (el) { el.remove(); }
+    }
+
+    /**
+     * Update the group member bar based on current agent list.
+     */
+    function updateGroupMemberBar(agents) {
+        groupAgents = agents || [];
+        groupMode = groupAgents.length > 0;
+
+        if (!groupMode) {
+            groupMemberBar.style.display = 'none';
+            return;
+        }
+
+        groupMemberBar.style.display = 'flex';
+        groupMembersEl.innerHTML = '';
+
+        for (const agent of groupAgents) {
+            const badge = document.createElement('div');
+            badge.className = 'group-member-badge';
+            badge.title = `${agent.name || agent.agentId} — click × to remove`;
+            badge.dataset.agentId = agent.agentId;
+
+            const color = escapeHtml(agent.color || '#888');
+            const name = escapeHtml(agent.name || agent.agentId);
+            badge.innerHTML = `
+                <span class="group-member-dot" style="background:${color}"></span>
+                <span class="group-member-name">${name}</span>
+                <span class="group-member-remove" data-agent-id="${escapeAttr(agent.agentId)}" title="Remove">×</span>
+            `;
+            groupMembersEl.appendChild(badge);
+        }
+
+        // update input placeholder hint
+        messageInput.placeholder = i18n.groupModeHint || 'Use @name to mention a specific agent...';
+    }
+
+    // Click on remove × in member badge
+    groupMembersEl.addEventListener('click', (e) => {
+        const removeBtn = e.target.closest('.group-member-remove');
+        if (!removeBtn) { return; }
+        const agentId = removeBtn.dataset.agentId;
+        if (agentId) {
+            vscode.postMessage({ type: 'removeAgentFromGroup', agentId });
+        }
+    });
+
+    // Click + button to add agent
+    groupAddBtn.addEventListener('click', () => {
+        vscode.postMessage({ type: 'addAgentToGroup' });
+    });
+
+    // ── @ Mention Autocomplete ────────────────────────────────────────────────
+
+    function getMentionQueryFromInput() {
+        const text = messageInput.value;
+        const pos = messageInput.selectionStart || 0;
+        const before = text.substring(0, pos);
+        const atIdx = before.lastIndexOf('@');
+        if (atIdx === -1) { return null; }
+        const query = before.substring(atIdx + 1);
+        if (/\s/.test(query)) { return null; }
+        return { query, atIdx };
+    }
+
+    function showMentionPicker(query) {
+        if (!groupMode || groupAgents.length === 0) {
+            hideMentionPicker();
+            return;
+        }
+
+        const filtered = groupAgents.filter(a => {
+            const name = (a.name || a.agentId).toLowerCase();
+            return name.startsWith(query.toLowerCase());
+        });
+
+        if (filtered.length === 0) {
+            hideMentionPicker();
+            return;
+        }
+
+        mentionPickerIndex = 0;
+        mentionPickerList.innerHTML = '';
+
+        filtered.forEach((agent, idx) => {
+            const item = document.createElement('div');
+            item.className = 'mention-picker-item' + (idx === 0 ? ' active' : '');
+            item.dataset.agentId = agent.agentId;
+            item.dataset.agentName = agent.name || agent.agentId;
+
+            const color = escapeHtml(agent.color || '#888');
+            const name = escapeHtml(agent.name || agent.agentId);
+            const id = escapeHtml(agent.agentId);
+
+            item.innerHTML = `
+                <span class="mention-picker-dot" style="background:${color}"></span>
+                <span class="mention-picker-name">${name}</span>
+                ${name !== id ? `<span class="mention-picker-id">(${id})</span>` : ''}
+            `;
+
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                insertMentionFromPicker(agent.name || agent.agentId);
+            });
+
+            mentionPickerList.appendChild(item);
+        });
+
+        mentionPickerEl.style.display = 'block';
+    }
+
+    function hideMentionPicker() {
+        mentionPickerEl.style.display = 'none';
+        mentionPickerList.innerHTML = '';
+        mentionPickerIndex = 0;
+    }
+
+    function insertMentionFromPicker(agentName) {
+        const text = messageInput.value;
+        const pos = messageInput.selectionStart || 0;
+        const before = text.substring(0, pos);
+        const after = text.substring(pos);
+        const atIdx = before.lastIndexOf('@');
+        if (atIdx === -1) { hideMentionPicker(); return; }
+
+        const prefix = before.substring(0, atIdx);
+        const inserted = `@${agentName} `;
+        messageInput.value = prefix + inserted + after;
+        const newPos = atIdx + inserted.length;
+        messageInput.setSelectionRange(newPos, newPos);
+        hideMentionPicker();
+        messageInput.focus();
+        autoResize();
+    }
+
+    // Update mention picker on input
+    messageInput.addEventListener('input', () => {
+        autoResize();
+        const result = getMentionQueryFromInput();
+        if (result !== null && groupMode) {
+            showMentionPicker(result.query);
+        } else {
+            hideMentionPicker();
+        }
+    });
+
+    // Navigate picker with keyboard
+    messageInput.addEventListener('keydown', (e) => {
+        if (mentionPickerEl.style.display === 'none') { return; }
+
+        const items = mentionPickerList.querySelectorAll('.mention-picker-item');
+        if (items.length === 0) { return; }
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            mentionPickerIndex = (mentionPickerIndex + 1) % items.length;
+            items.forEach((el, i) => el.classList.toggle('active', i === mentionPickerIndex));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            mentionPickerIndex = (mentionPickerIndex - 1 + items.length) % items.length;
+            items.forEach((el, i) => el.classList.toggle('active', i === mentionPickerIndex));
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            const active = items[mentionPickerIndex];
+            if (active) {
+                e.preventDefault();
+                insertMentionFromPicker(active.dataset.agentName || active.dataset.agentId || '');
+            }
+        } else if (e.key === 'Escape') {
+            hideMentionPicker();
+        }
+    });
+
+    // ══════════════════════════════════════════════════════════════════════════
 
     // Update send button state
     /**
@@ -1158,8 +1434,17 @@ Try:
             attachments = [];
             updateAttachments();
         }
+        hideMentionPicker();
 
-        // Send
+        // Group mode: fan-out to agents
+        if (groupMode && groupAgents.length > 0) {
+            isSending = true;
+            updateSendButtonState();
+            vscode.postMessage({ type: 'sendGroupMessage', content: fullMessage });
+            return;
+        }
+
+        // Normal single-agent mode
         isSending = true;
         updateSendButtonState();
         showThinking();
@@ -1983,6 +2268,39 @@ Try:
                 isRefreshing = false;
                 setRefreshButtonState(false);
                 updateRefreshButtonDisabled();
+                break;
+
+            // ── Group Chat Messages ───────────────────────────────────────────
+            case 'groupMessage':
+                renderGroupMessage(message);
+                // If all agents have replied, reset isSending
+                if (message.role === 'agent' && message.content) {
+                    groupWaitingIds.delete(message.agentId);
+                    if (groupWaitingIds.size === 0) {
+                        isSending = false;
+                        updateSendButtonState();
+                    }
+                }
+                break;
+
+            case 'groupStateUpdate':
+                updateGroupMemberBar(message.agents || []);
+                if (!groupMode) {
+                    // Restore normal placeholder
+                    messageInput.placeholder = i18n.sendPlaceholder || 'Ask a question...';
+                    isSending = false;
+                    updateSendButtonState();
+                }
+                break;
+
+            case 'waitingGroupReply':
+                // Show per-agent thinking indicators
+                groupWaitingIds = new Set(message.agentIds || []);
+                for (const agentId of groupWaitingIds) {
+                    showAgentThinking(agentId);
+                }
+                isSending = true;
+                updateSendButtonState();
                 break;
         }
     });
