@@ -54,6 +54,7 @@ export interface GroupMessage {
     agentColor?: string;
     content: string;
     mentions: string[];    // parsed @mentions
+    toolCalls?: Array<{ name: string; args: any }>;  // tool calls from agent response
     timestamp: number;     // Date.now()
 }
 
@@ -63,6 +64,7 @@ export type GroupWarningCallback = (reason: 'loop_limit') => void;
 export type GroupChainProgressCallback = (progress: { current: string; queued: string[] }) => void;
 export type GroupLoopModeCallback = (enabled: boolean) => void;
 export type GroupAutoMessageCallback = (msg: { type: 'autoLoop'; content: string }) => void;
+export type GroupWaitingReplyCallback = (agentIds: string[]) => void;
 
 // ─── Manager ──────────────────────────────────────────────────────────────────
 export class GroupChatManager {
@@ -109,6 +111,7 @@ export class GroupChatManager {
     private _chainProgressCallbacks: GroupChainProgressCallback[] = [];
     private _loopModeCallbacks: GroupLoopModeCallback[] = [];
     private _autoMessageCallbacks: GroupAutoMessageCallback[] = [];
+    private _waitingReplyCallbacks: GroupWaitingReplyCallback[] = [];
 
     // Gateway chat event handler
     private _chatEventHandler: ((payload: any) => void) | null = null;
@@ -604,6 +607,34 @@ export class GroupChatManager {
             .trim();
     }
 
+    /**
+     * Extract tool calls from a raw history message.
+     * Handles content array format: [{type: 'toolcall', name, arguments/args/input}]
+     * Returns empty array if no tool calls found.
+     */
+    private _extractToolCalls(raw: any): Array<{ name: string; args: any }> {
+        const toolCalls: Array<{ name: string; args: any }> = [];
+        let content = raw?.content as any;
+
+        if (!Array.isArray(content)) {
+            return toolCalls;
+        }
+
+        for (const c of content) {
+            if (!c || typeof c !== 'object') continue;
+
+            const type = (c.type || '').toLowerCase();
+            if (type === 'toolcall' || type === 'tool_call' || type === 'tool_use') {
+                toolCalls.push({
+                    name: c.name || 'tool',
+                    args: c.arguments || c.args || c.input
+                });
+            }
+        }
+
+        return toolCalls;
+    }
+
     private async _fetchLatestAgentMessage(agent: AgentMember, retryCount = 0): Promise<void> {
         if (!this._gateway) {
             return;
@@ -670,6 +701,9 @@ export class GroupChatManager {
                 return;
             }
 
+            // Extract tool calls from agent response
+            const toolCalls = this._extractToolCalls(lastAssistant);
+
             // Always show agent message in UI
             const msg: GroupMessage = {
                 id: `agent-${agent.agentId}-${Date.now()}`,
@@ -679,6 +713,7 @@ export class GroupChatManager {
                 agentColor: agent.color,
                 content,
                 mentions: [],
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
                 timestamp: Date.now(),
             };
             this._messages.push(msg);
@@ -809,7 +844,10 @@ export class GroupChatManager {
                     // Fire as a new group message (reuses the existing sendGroupMessage chain logic)
                     // Small delay to allow UI to update with the agent's response first
                     setTimeout(() => {
-                        this.sendGroupMessage(autoContent, this._chainPlanMode).catch(err => {
+                        this.sendGroupMessage(autoContent, this._chainPlanMode).then(resultAgentIds => {
+                            // Notify UI about waiting reply (for thinking indicators)
+                            this._notifyWaitingReply(resultAgentIds);
+                        }).catch(err => {
                             console.error(`[GroupChat] Loop Mode auto-send failed:`, err);
                         });
                     }, 300);
@@ -997,6 +1035,7 @@ export class GroupChatManager {
         this._chainProgressCallbacks = [];
         this._loopModeCallbacks = [];
         this._autoMessageCallbacks = [];
+        this._waitingReplyCallbacks = [];
     }
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -1086,5 +1125,21 @@ export class GroupChatManager {
 
     public offAutoMessage(cb: GroupAutoMessageCallback): void {
         this._autoMessageCallbacks = this._autoMessageCallbacks.filter(fn => fn !== cb);
+    }
+
+    // ── Waiting reply callbacks (for thinking indicators) ─────────────────────
+
+    private _notifyWaitingReply(agentIds: string[]): void {
+        for (const cb of this._waitingReplyCallbacks) {
+            try { cb(agentIds); } catch { /* ignore */ }
+        }
+    }
+
+    public onWaitingReply(cb: GroupWaitingReplyCallback): void {
+        this._waitingReplyCallbacks.push(cb);
+    }
+
+    public offWaitingReply(cb: GroupWaitingReplyCallback): void {
+        this._waitingReplyCallbacks = this._waitingReplyCallbacks.filter(fn => fn !== cb);
     }
 }

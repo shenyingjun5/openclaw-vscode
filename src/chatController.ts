@@ -7,7 +7,7 @@ import { ChangeManager } from './changeManager';
 import { DiffProvider } from './diffProvider';
 import { LanguageManager } from './languageManager';
 import { getAgentId, buildSessionKey } from './agentConfig';
-import { GroupChatManager, GroupMessage, AgentMember, GroupWarningCallback, GroupLoopModeCallback, GroupAutoMessageCallback } from './groupChatManager';
+import { GroupChatManager, GroupMessage, AgentMember, GroupWarningCallback, GroupLoopModeCallback, GroupAutoMessageCallback, GroupWaitingReplyCallback } from './groupChatManager';
 
 // i18n helper - 语言跟随 openclaw.aiOutputLanguage 设置
 function getLocale(): string {
@@ -104,6 +104,7 @@ export class ChatController {
     private _groupChainProgressCallback: ((progress: { current: string; queued: string[] }) => void) | null = null;
     private _groupLoopModeCallback: GroupLoopModeCallback | null = null;
     private _groupAutoMessageCallback: GroupAutoMessageCallback | null = null;
+    private _groupWaitingReplyCallback: GroupWaitingReplyCallback | null = null;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -182,6 +183,9 @@ export class ChatController {
         if (this._groupAutoMessageCallback) {
             this._groupManager.offAutoMessage(this._groupAutoMessageCallback);
         }
+        if (this._groupWaitingReplyCallback) {
+            this._groupManager.offWaitingReply(this._groupWaitingReplyCallback);
+        }
 
         // Group message → forward to webview
         this._groupMessageCallback = (msg: GroupMessage) => {
@@ -218,6 +222,12 @@ export class ChatController {
             this._webview?.postMessage({ type: 'autoLoopMessage', content: msg.content });
         };
         this._groupManager.onAutoMessage(this._groupAutoMessageCallback);
+
+        // Waiting reply (for thinking indicators during auto-send) → forward to webview
+        this._groupWaitingReplyCallback = (agentIds: string[]) => {
+            this._webview?.postMessage({ type: 'waitingGroupReply', agentIds });
+        };
+        this._groupManager.onWaitingReply(this._groupWaitingReplyCallback);
     }
 
     get sessionKey(): string {

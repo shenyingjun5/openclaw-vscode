@@ -614,14 +614,14 @@
         }
 
         // Empty content = error/aborted, remove thinking indicator for that agent
-        if (!msg.content) {
-            console.log(`[Group] Empty content for agent ${msg.agentId}, removing thinking indicator`);
+        if (!msg.content && (!msg.toolCalls || msg.toolCalls.length === 0)) {
+            console.log(`[Group] Empty content and no toolCalls for agent ${msg.agentId}, removing thinking indicator`);
             removeAgentThinking(msg.agentId);
             return;
         }
 
         // Deduplicate: skip if this exact message was already rendered
-        const contentHash = `${(msg.content || '').substring(0, 100)}`;
+        const contentHash = `${(msg.content || '').substring(0, 100)}:${(msg.toolCalls || []).length}`;
         if (!renderedGroupMessages.has(msg.agentId)) {
             renderedGroupMessages.set(msg.agentId, new Set());
         }
@@ -632,7 +632,7 @@
             return;
         }
         agentHashes.add(contentHash);
-        console.log(`[Group] Rendering message from ${msg.agentId}:`, msg.content.substring(0, 100));
+        console.log(`[Group] Rendering message from ${msg.agentId}:`, msg.content?.substring(0, 100) || '(no text, tools only)');
 
         removeAgentThinking(msg.agentId);
 
@@ -653,7 +653,32 @@
         html += `<div class="group-agent-avatar" style="background:${color}">${escapeHtml(initial)}</div>`;
         html += `<span class="group-agent-name" style="color:${color}">${name}</span>`;
         html += `</div>`;
-        html += renderMarkdown(msg.content);
+        
+        // Render tool calls first (if any)
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+            html += '<div class="tool-cards-row">';
+            for (const tc of msg.toolCalls) {
+                const meta = getToolMeta(tc.name);
+                const argsJson = JSON.stringify(tc.args || {});
+                const detail = meta.detail || '';
+                const hasArgs = Object.keys(tc.args || {}).length > 0;
+                html += `<div class="tool-card">
+                    <div class="tool-card-header">
+                        <span class="tool-card-icon">${meta.icon}</span>
+                        <span class="tool-card-label">${escapeHtml(meta.label)}</span>
+                        <span class="tool-card-check">✓</span>
+                    </div>
+                    ${detail ? `<div class="tool-card-detail">${escapeHtml(detail)}</div>` : ''}
+                    ${hasArgs ? `<button class="tool-card-expand" data-name="${escapeAttr(meta.label)}" data-args="${argsJson}">{...}</button>` : ''}
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        // Render content text (if any)
+        if (msg.content) {
+            html += renderMarkdown(msg.content);
+        }
 
         div.innerHTML = html;
         messages.appendChild(div);
