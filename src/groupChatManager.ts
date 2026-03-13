@@ -257,9 +257,26 @@ export class GroupChatManager {
 
         this._notifyState();
 
-        // Broadcast system prompt to all agents (fire-and-forget).
-        // New agent session will be created by gateway on first message.
-        this._broadcastSystemPrompt().catch(() => {});
+        // Initialize NEW agent session by sending system prompt via sendChat (awaited RPC).
+        // This ensures the gateway creates the session before /model command arrives.
+        // The initKey won't be in _pendingRunIds → group handler will drop the event.
+        if (this._gateway) {
+            const prompt = this._buildAgentSystemPrompt(member);
+            const initKey = `init-${agentId}-${Date.now()}`;
+            try {
+                await this._gateway.sendChat(member.sessionKey, prompt, initKey);
+            } catch {
+                // sendChat is fire-and-forget RPC — errors are unlikely but non-fatal
+            }
+
+            // Update other existing agents with new member list (fire-and-forget)
+            for (const agent of this._agents.values()) {
+                if (agent.agentId !== agentId) {
+                    const updatePrompt = this._buildAgentSystemPrompt(agent);
+                    this._gateway.sendMessageFireAndForget(agent.sessionKey, updatePrompt);
+                }
+            }
+        }
 
         return member;
     }
