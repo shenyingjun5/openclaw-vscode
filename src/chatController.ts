@@ -527,12 +527,8 @@ export class ChatController {
             // Also update for group chat agents
             const contextMsg = this._sessionManager.buildContextSetupMessage();
             if (contextMsg) {
-                this._groupManager.setContextSetupMessage(contextMsg);
-                // Broadcast to all current group members
-                if (this._groupManager.isGroupMode()) {
-                    // Trigger broadcast via leaveGroup + re-add, or just call the method directly
-                    // For now, we'll just set the message and it will be used for next broadcast
-                }
+                // broadcastNow=true sends to all current agents immediately
+                this._groupManager.setContextSetupMessage(contextMsg, this._groupManager.isGroupMode());
             }
         } catch (err) {
             console.warn('上下文设置重发失败:', err);

@@ -249,9 +249,15 @@ export class GroupChatManager {
     /**
      * Set the context setup message (language + working directory).
      * This will be sent to all agents when they join or when system prompt is broadcast.
+     * If broadcastNow is true, immediately sends to all current agents.
      */
-    public setContextSetupMessage(message: string): void {
+    public setContextSetupMessage(message: string, broadcastNow: boolean = false): void {
         this._contextSetupMessage = message;
+        if (broadcastNow && message && this._gateway && this._agents.size > 0) {
+            for (const agent of this._agents.values()) {
+                this._gateway.sendMessageFireAndForget(agent.sessionKey, message);
+            }
+        }
     }
 
     // ── Agent Management ──────────────────────────────────────────────────────

@@ -183,6 +183,18 @@
     let assistantAvatar = ''; // AI 头像（emoji/字母/URL）
 
     /**
+     * Lighten a hex color for better readability on dark backgrounds.
+     * Blends the color towards white by the given amount (0–1).
+     */
+    function lightenColor(hex, amount) {
+        const num = parseInt(hex.replace('#', ''), 16);
+        const r = Math.min(255, Math.round(((num >> 16) & 0xff) + (255 - ((num >> 16) & 0xff)) * amount));
+        const g = Math.min(255, Math.round(((num >> 8) & 0xff) + (255 - ((num >> 8) & 0xff)) * amount));
+        const b = Math.min(255, Math.round((num & 0xff) + (255 - (num & 0xff)) * amount));
+        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+
+    /**
      * Returns the most-recent agent that is still a member of the current group.
      * Falls back through respondedAgentHistory until an active member is found.
      * Returns null if no active agent has responded yet.
@@ -794,12 +806,14 @@
             badge.title = `${agent.name || agent.agentId} — right-click for options`;
             badge.dataset.agentId = agent.agentId;
 
-            const color = escapeHtml(agent.color || '#888');
+            const color = agent.color || '#888';
+            const colorEscaped = escapeHtml(color);
+            const colorLightened = lightenColor(color, 0.35); // Brighten for better readability on dark bg
             const name = escapeHtml(agent.name || agent.agentId);
 
             badge.innerHTML = `
-                <span class="group-member-dot" style="background:${color}"></span>
-                <span class="group-member-name" style="color:${color}">${name}</span>
+                <span class="group-member-dot" style="background:${colorEscaped}"></span>
+                <span class="group-member-name" style="color:${escapeHtml(colorLightened)}">${name}</span>
                 <span class="group-member-remove" data-agent-id="${escapeAttr(agent.agentId)}" title="Remove">×</span>
             `;
             groupMembersEl.appendChild(badge);
