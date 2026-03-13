@@ -149,7 +149,7 @@
     let groupMode = false;
     let groupAgents = [];        // Array of { agentId, name, avatar, color }
     let groupWaitingIds = new Set(); // agentIds currently generating reply
-    let lastRespondedAgentId = null; // agentId of the most recent agent reply (for auto-@mention on execute)
+    let respondedAgentHistory = []; // ordered stack of agentIds that have replied (newest first), for auto-@mention fallback
     let mentionPickerIndex = 0;  // selected index in mention picker
     let attachments = []; // { type: 'file'|'image'|'reference', name, path?, data? }
     let messageQueue = []; // 消息队列: { id, text, attachments, createdAt }
@@ -169,6 +169,19 @@
     let currentThinkLevel = 'minimal'; // 当前思考深度（会话级状态）
     let assistantName = '';   // AI 名称（从 agent.identity.get 获取）
     let assistantAvatar = ''; // AI 头像（emoji/字母/URL）
+
+    /**
+     * Returns the most-recent agent that is still a member of the current group.
+     * Falls back through respondedAgentHistory until an active member is found.
+     * Returns null if no active agent has responded yet.
+     */
+    function getLastActiveAgent() {
+        for (const agentId of respondedAgentHistory) {
+            const agent = groupAgents.find(a => a.agentId === agentId);
+            if (agent) { return agent; }
+        }
+        return null;
+    }
 
     // xhigh 支持的模型列表
     const XHIGH_MODELS = [
@@ -660,7 +673,7 @@
         if (!groupMode) {
             groupMemberBar.style.display = 'none';
             messageInput.placeholder = i18n.sendPlaceholder || 'Ask a question...';
-            lastRespondedAgentId = null; // reset when leaving group
+            respondedAgentHistory = []; // reset when leaving group
             updateGroupToggleBtn();
             return;
         }
@@ -1643,14 +1656,16 @@ Try:
                 fullMessage.includes('@' + (a.name || a.agentId))
             );
 
-            // Auto-prepend @lastAgent for confirm/execute commands in plan mode
-            if (!hasMention && planMode && lastRespondedAgentId) {
+            // Auto-prepend @lastAgent for confirm/execute commands in plan mode.
+            // Uses getLastActiveAgent() so if the last responder left the group,
+            // it automatically falls back to the next most-recent active member.
+            if (!hasMention && planMode) {
                 const confirmCommands = ['execute', 'go', 'yes', 'ok', 'y', 'run',
                     'ดำเนินการ', 'ยืนยัน', 'เริ่ม', '执行', '继续', '确认', '开始'];
                 const trimmedInput = text.trim().toLowerCase();
                 const isConfirm = confirmCommands.some(cmd => trimmedInput === cmd);
                 if (isConfirm) {
-                    const lastAgent = groupAgents.find(a => a.agentId === lastRespondedAgentId);
+                    const lastAgent = getLastActiveAgent();
                     if (lastAgent) {
                         const mention = '@' + (lastAgent.name || lastAgent.agentId);
                         fullMessage = mention + ' ' + fullMessage;
@@ -2050,9 +2065,9 @@ Try:
             if (!text && attachments.length === 0) {
                 // Plan mode: ถ้ามีประวัติข้อความแล้ว กด enter = ส่ง "execute"
                 if (planMode && messages && messages.children && messages.children.length > 0) {
-                    // Group mode: auto-tag last responding agent
-                    if (groupMode && lastRespondedAgentId) {
-                        const lastAgent = groupAgents.find(a => a.agentId === lastRespondedAgentId);
+                    // Group mode: auto-tag last active responding agent (with fallback)
+                    if (groupMode) {
+                        const lastAgent = getLastActiveAgent();
                         const mention = lastAgent ? '@' + (lastAgent.name || lastAgent.agentId) : null;
                         messageInput.value = mention ? mention + ' execute' : 'execute';
                     } else {
@@ -2538,9 +2553,13 @@ Try:
                 // Track reply completion for any agent message (including empty/error cases).
                 // Always delete the agentId so the waiting set doesn't get stuck.
                 if (message.role === 'agent') {
-                    // Track last responding agent for auto-@mention on plan-mode execute
+                    // Track last responding agent for auto-@mention on plan-mode execute.
+                    // Push to front of history (newest first); avoid duplicates.
                     if (message.content && message.agentId) {
-                        lastRespondedAgentId = message.agentId;
+                        respondedAgentHistory = [
+                            message.agentId,
+                            ...respondedAgentHistory.filter(id => id !== message.agentId)
+                        ];
                     }
                     groupWaitingIds.delete(message.agentId);
                     if (groupWaitingIds.size === 0) {
