@@ -54,9 +54,10 @@
         'ctx.remove': 'Remove from group',
         'ctx.modelDefault': 'Use Agent Default',
         groupLoopWarning: '⚠️ Group loop guard triggered — agents stopped responding. Send a new message to continue.',
-        groupToggle: 'Toggle group chat',
+        groupToggle: 'Add agent to group',
         groupCostWarning: 'Group mode sends your message to all agents — token usage is multiplied',
-        delegation: 'delegation'
+        delegation: 'delegation',
+        groupMentionRequired: '⚠️ Please @mention at least one agent to send a message (e.g. @AgentName your request).'
     };
 
     // Load locale
@@ -110,9 +111,10 @@
                 'ctx.remove': '从群组移除',
                 'ctx.modelDefault': '使用助手默认模型',
                 groupLoopWarning: '⚠️ 检测到群组循环 — 已停止自动响应。发送新消息继续对话。',
-                groupToggle: '切换群组对话',
+                groupToggle: '添加助手到群组',
                 groupCostWarning: '群组模式会将消息发送给所有助手，Token 用量成倍增加',
-                delegation: '任务委派'
+                delegation: '任务委派',
+                groupMentionRequired: '⚠️ Please @mention at least one agent to send a message (e.g. @AgentName your request).'
             };
         }
         applyI18n();
@@ -223,7 +225,6 @@
     // Group chat DOM
     const groupMemberBar = document.getElementById('groupMemberBar');
     const groupMembersEl = document.getElementById('groupMembers');
-    const groupAddBtn = document.getElementById('groupAddBtn');
     const groupLeaveBtn = document.getElementById('groupLeaveBtn');
     const groupToggleBtn = document.getElementById('groupToggleBtn');
     const mentionPickerEl = document.getElementById('mentionPicker');
@@ -553,13 +554,11 @@
 
     /**
      * Render a group agent message bubble.
+     * User messages are already shown by sendMessageNow — skip them here.
      */
     function renderGroupMessage(msg) {
         if (!msg || msg.role === 'user') {
-            // User messages in group chat use the normal addMessage flow
-            if (msg && msg.role === 'user') {
-                addMessage('user', msg.content);
-            }
+            // User messages already rendered in sendMessageNow — do not duplicate
             return;
         }
 
@@ -721,6 +720,9 @@
             agentContextMenu.remove();
             agentContextMenu = null;
         }
+        // Also remove any open model sub-menu (it's a separate body element)
+        const subMenu = document.querySelector('.agent-model-submenu');
+        if (subMenu) { subMenu.remove(); }
     }
 
     groupMembersEl.addEventListener('contextmenu', (e) => {
@@ -847,11 +849,6 @@
         });
     }
 
-    // Click + button to add agent
-    groupAddBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'addAgentToGroup' });
-    });
-
     // Leave group button inside member bar
     if (groupLeaveBtn) {
         groupLeaveBtn.addEventListener('click', () => {
@@ -859,24 +856,20 @@
         });
     }
 
-    // Toggle group mode button in header
+    // Group toggle button in header — always means "add agent to group"
+    // Leaving group is done via the ✕ button inside the member bar
     function updateGroupToggleBtn() {
         if (!groupToggleBtn) return;
         const use = groupToggleBtn.querySelector('use');
-        if (groupMode) {
-            use.setAttribute('href', '#icon-group-leave');
-            groupToggleBtn.title = i18n.leaveGroup || 'Leave group chat';
-            groupToggleBtn.classList.add('active');
-        } else {
-            use.setAttribute('href', '#icon-group-add');
-            groupToggleBtn.title = i18n.addAgent || 'Add agent to group';
-            groupToggleBtn.classList.remove('active');
-        }
+        use.setAttribute('href', '#icon-group-add');
+        groupToggleBtn.title = i18n.groupToggle || 'Add agent to group';
+        // Visual active state when group is active (informational only)
+        groupToggleBtn.classList.toggle('active', groupMode);
     }
 
     if (groupToggleBtn) {
         groupToggleBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'toggleGroupMode' });
+            vscode.postMessage({ type: 'addAgentToGroup' });
         });
     }
 
@@ -1642,6 +1635,36 @@ Try:
             }
         }
 
+        // ── Group mode: validate @mention BEFORE showing message ────────────
+        if (groupMode && groupAgents.length > 0) {
+            const hasMention = groupAgents.some(a =>
+                fullMessage.includes('@' + (a.name || a.agentId))
+            );
+            if (!hasMention) {
+                showGroupWarningToast(i18n.groupMentionRequired ||
+                    '⚠️ Please @mention at least one agent (e.g. @AgentName your request).');
+                // Do NOT clear the input — let user add a mention and retry
+                return;
+            }
+
+            // Valid mention — show user message then send
+            addMessage('user', text || '[attachment]', atts.length > 0 ? [...atts] : null);
+
+            if (atts === attachments) {
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+                attachments = [];
+                updateAttachments();
+            }
+            hideMentionPicker();
+
+            isSending = true;
+            updateSendButtonState();
+            vscode.postMessage({ type: 'sendGroupMessage', content: fullMessage, planMode: planMode });
+            return;
+        }
+
+        // ── Normal single-agent mode ──────────────────────────────────────────
         // Show user message with attachments
         addMessage('user', text || '[attachment]', atts.length > 0 ? [...atts] : null);
 
@@ -1654,15 +1677,6 @@ Try:
         }
         hideMentionPicker();
 
-        // Group mode: fan-out to agents
-        if (groupMode && groupAgents.length > 0) {
-            isSending = true;
-            updateSendButtonState();
-            vscode.postMessage({ type: 'sendGroupMessage', content: fullMessage, planMode: planMode });
-            return;
-        }
-
-        // Normal single-agent mode
         isSending = true;
         updateSendButtonState();
         showThinking();
@@ -2491,8 +2505,9 @@ Try:
             // ── Group Chat Messages ───────────────────────────────────────────
             case 'groupMessage':
                 renderGroupMessage(message);
-                // If all agents have replied, reset isSending
-                if (message.role === 'agent' && message.content) {
+                // Track reply completion for any agent message (including empty/error cases).
+                // Always delete the agentId so the waiting set doesn't get stuck.
+                if (message.role === 'agent') {
                     groupWaitingIds.delete(message.agentId);
                     if (groupWaitingIds.size === 0) {
                         isSending = false;

@@ -86,6 +86,15 @@ export class GroupChatManager {
     private _lastUserMessage: string = '';  // for delegation context
     private _lastAgentResponse: Map<string, string> = new Map(); // agentId → last full response
 
+    // Global model (from main dropdown, used when agent has no override)
+    private _globalModel: string | undefined = undefined;
+
+    // Chain execution (sequential @-mention routing)
+    private _chainQueue: AgentMember[] = [];
+    private _chainContext: Array<{ agentName: string; response: string }> = [];
+    private _chainOriginalContent: string = '';
+    private _chainPlanMode: boolean = false;
+
     // Callbacks
     private _messageCallbacks: GroupMessageCallback[] = [];
     private _stateCallbacks: GroupStateCallback[] = [];
@@ -130,14 +139,25 @@ export class GroupChatManager {
             const eventRunId: string = payload.runId || '';
             const state: string = payload.state || '';
 
-            // Find which agent this event belongs to
+            // Find which agent this event belongs to — exact match only.
+            // Do NOT use a broad startsWith fallback: it would match unrelated sessions
+            // (e.g. the main chat session "agent:main:vscode-main-*" would be caught
+            // by "agent:main:vscode-group-*" agents that share the same agentId).
             let matchedAgent: AgentMember | undefined;
             for (const agent of this._agents.values()) {
-                const suffix = agent.sessionKey.replace(/^agent:[^:]+:/, '');
-                if (eventSessionKey.includes(suffix)) {
+                if (eventSessionKey === agent.sessionKey) {
                     matchedAgent = agent;
                     break;
                 }
+            }
+
+            // Strict runId guard: if the event carries a runId that we never issued
+            // for this agent (i.e. a system-prompt fire-and-forget or an unrelated run),
+            // skip it entirely. This prevents system-prompt NO_REPLY responses from
+            // being treated as user-triggered responses.
+            if (matchedAgent && eventRunId && !this._pendingRunIds.has(eventRunId)) {
+                // Unknown runId → not a user-triggered response; ignore silently.
+                return;
             }
 
             if (!matchedAgent) {
@@ -148,7 +168,12 @@ export class GroupChatManager {
                 if (eventRunId) {
                     this._pendingRunIds.delete(eventRunId);
                 }
-                this._fetchLatestAgentMessage(matchedAgent);
+                // Small delay to let the Gateway persist the final message before
+                // we query chat.history — avoids a race where history is fetched
+                // before the assistant turn is written.
+                setTimeout(() => {
+                    this._fetchLatestAgentMessage(matchedAgent!);
+                }, 150);
             } else if (state === 'error' || state === 'aborted') {
                 if (eventRunId) {
                     this._pendingRunIds.delete(eventRunId);
@@ -203,8 +228,11 @@ export class GroupChatManager {
 
         this._notifyState();
 
-        // Broadcast updated system prompt to all agents (including the new one)
-        this._broadcastSystemPrompt();
+        // Broadcast updated system prompt to all agents (including the new one).
+        // Fire-and-forget intentionally: we do NOT track these runIds in _pendingRunIds,
+        // so the strict runId guard in _setupChatEventListener will silently drop any
+        // chat events triggered by system-prompt responses (e.g. NO_REPLY).
+        this._broadcastSystemPrompt().catch(() => {});
 
         return member;
     }
@@ -283,11 +311,11 @@ export class GroupChatManager {
     // ── Messaging ─────────────────────────────────────────────────────────────
 
     /**
-     * Send a message to the appropriate agents.
-     * Parses @mentions; broadcasts to all if no mention present.
-     * Returns Map of agentId → runId for tracking.
+     * Send a message to mentioned agents in sequential chain order.
+     * Requires at least one @mention — enforcement is done on the webview side.
+     * Returns ordered list of all target agentIds (for UI thinking indicators).
      */
-    public async sendGroupMessage(content: string, planMode: boolean = false): Promise<Map<string, string>> {
+    public async sendGroupMessage(content: string, planMode: boolean = false): Promise<string[]> {
         if (!this._gateway) {
             throw new Error('GroupChatManager not initialized');
         }
@@ -299,14 +327,14 @@ export class GroupChatManager {
         this._responseChain = [];
         this._lastAgentResponse = new Map();
 
-        // Anti-loop: reset round counter and set in-flight flag
+        // Anti-loop: reset round counter
         this._responseCountThisRound = 0;
         this._userMessageInFlight = true;
 
         const agents = this.getAgents();
         const mentions = parseMentions(content, agents);
 
-        // Record user message
+        // Record user message in context (no UI notify — webview already shows it)
         const userMsg: GroupMessage = {
             id: `user-${Date.now()}`,
             role: 'user',
@@ -315,28 +343,27 @@ export class GroupChatManager {
             timestamp: Date.now(),
         };
         this._messages.push(userMsg);
-        this._notifyMessage(userMsg);
 
-        // Determine targets
-        const targetAgents: AgentMember[] = mentions.length > 0
-            ? mentions
-                .map(id => this._agents.get(id))
-                .filter((a): a is AgentMember => a !== undefined)
-            : Array.from(this._agents.values());
+        // Determine targets (in @mention order)
+        const targetAgents: AgentMember[] = mentions
+            .map(id => this._agents.get(id))
+            .filter((a): a is AgentMember => a !== undefined);
 
         if (targetAgents.length === 0) {
-            return new Map();
+            this._userMessageInFlight = false;
+            return [];
         }
 
-        // Build context prefix
-        const contextPrefix = this._buildGroupContext(userMsg.id);
-        let fullMessage = contextPrefix
-            ? `${contextPrefix}\n\n---\n[Your turn to respond]\n${content}`
-            : content;
+        // Set up chain: queue all agents after the first
+        this._chainOriginalContent = content;
+        this._chainPlanMode = planMode;
+        this._chainContext = [];
+        this._chainQueue = targetAgents.slice(1);
 
-        // Append plan mode suffix for user messages (not delegations)
+        // Build message for first agent
+        let firstMessage = content;
         if (planMode) {
-            fullMessage += '\n\n---- Plan Mode ----\n'
+            firstMessage += '\n\n---- Plan Mode ----\n'
                 + '⚠️ PLAN MODE\n'
                 + 'Allowed: read, search, list\n'
                 + 'Forbidden: write, modify, delete, execute\n'
@@ -346,22 +373,57 @@ export class GroupChatManager {
                 + '---- Plan Mode ----';
         }
 
-        // Fan-out to target agents
-        const runIds = new Map<string, string>();
-        for (const agent of targetAgents) {
-            const runId = crypto.randomUUID();
-            this._pendingRunIds.set(runId, agent.agentId);
-            try {
-                await this._gateway.sendChat(agent.sessionKey, fullMessage, runId);
-                runIds.set(agent.agentId, runId);
-            } catch (err) {
-                this._pendingRunIds.delete(runId);
-                console.error(`[GroupChat] Failed to send to ${agent.agentId}:`, err);
-            }
+        // Send to first agent only
+        const firstAgent = targetAgents[0];
+        const runId = crypto.randomUUID();
+        this._pendingRunIds.set(runId, firstAgent.agentId);
+        try {
+            await this._gateway.sendChat(firstAgent.sessionKey, firstMessage, runId);
+        } catch (err) {
+            this._pendingRunIds.delete(runId);
+            console.error(`[GroupChat] Failed to send to ${firstAgent.agentId}:`, err);
         }
 
         this._userMessageInFlight = false;
-        return runIds;
+        // Return ALL target agentIds so webview can show thinking indicators for all
+        return targetAgents.map(a => a.agentId);
+    }
+
+    /**
+     * Build the chain context message for the next agent in the chain.
+     */
+    private _buildChainMessage(forAgent: AgentMember): string {
+        const lines: string[] = [
+            '[Chain Context — Group Collaboration]',
+            `Original user request: "${this._chainOriginalContent}"`,
+            '',
+            'Previous responses in this chain:',
+        ];
+
+        for (const ctx of this._chainContext) {
+            lines.push(`@${ctx.agentName}:`);
+            lines.push('---');
+            lines.push(ctx.response);
+            lines.push('---');
+            lines.push('');
+        }
+
+        lines.push(`Your turn, @${forAgent.name || forAgent.agentId}.`);
+        lines.push('Build on the above context and provide your contribution.');
+
+        if (this._chainPlanMode) {
+            lines.push('');
+            lines.push('---- Plan Mode ----');
+            lines.push('⚠️ PLAN MODE');
+            lines.push('Allowed: read, search, list');
+            lines.push('Forbidden: write, modify, delete, execute');
+            lines.push('Steps: 1) Understand the task 2) Break into small sub-tasks 3) Describe goal and impact for each step');
+            lines.push('Output: step-by-step plan');
+            lines.push('Wait for user "execute" before any write action');
+            lines.push('---- Plan Mode ----');
+        }
+
+        return lines.join('\n');
     }
 
     private _buildGroupContext(excludeId: string): string {
@@ -421,7 +483,25 @@ export class GroupChatManager {
         ].join('\n');
     }
 
-    private async _fetchLatestAgentMessage(agent: AgentMember): Promise<void> {
+    /**
+     * Extract and normalise the text content from a raw history message.
+     * Returns empty string if no renderable text is found.
+     */
+    private _extractContent(raw: any): string {
+        let content = raw?.content as any;
+        if (Array.isArray(content)) {
+            content = content
+                .filter((c: any) => c && (c.type === 'text' || c.type === 'output_text'))
+                .map((c: any) => c.text || '')
+                .join('');
+        }
+        return String(content || '')
+            .replace(/<think>[\s\S]*?<\/think>/g, '')
+            .replace(/<\/?final>/g, '')
+            .trim();
+    }
+
+    private async _fetchLatestAgentMessage(agent: AgentMember, retryCount = 0): Promise<void> {
         if (!this._gateway) {
             return;
         }
@@ -437,23 +517,32 @@ export class GroupChatManager {
         try {
             const history = await this._gateway.getHistory(agent.sessionKey, 10);
             const lastAssistant = [...history].reverse().find(m => m.role === 'assistant');
+
+            // If history hasn't caught up yet, retry once after a short delay.
+            // This handles the Gateway race where the "final" chat event fires
+            // slightly before the assistant turn is persisted to chat.history.
             if (!lastAssistant) {
+                if (retryCount === 0) {
+                    this._responseCountThisRound--; // undo increment — not a real response yet
+                    setTimeout(() => this._fetchLatestAgentMessage(agent, 1), 300);
+                }
                 return;
             }
 
-            let content = lastAssistant.content as any;
-            if (Array.isArray(content)) {
-                content = content
-                    .filter((c: any) => c && (c.type === 'text' || c.type === 'output_text'))
-                    .map((c: any) => c.text || '')
-                    .join('');
-            }
-            content = String(content || '')
-                .replace(/<think>[\s\S]*?<\/think>/g, '')
-                .replace(/<\/?final>/g, '')
-                .trim();
+            const content = this._extractContent(lastAssistant);
 
             if (!content) {
+                // History returned but content is empty — retry once
+                if (retryCount === 0) {
+                    this._responseCountThisRound--;
+                    setTimeout(() => this._fetchLatestAgentMessage(agent, 1), 300);
+                }
+                return;
+            }
+
+            // Filter sentinel messages — do not render or route
+            const trimmed = content.trim();
+            if (trimmed === 'NO_REPLY' || trimmed === 'HEARTBEAT_OK') {
                 return;
             }
 
@@ -464,9 +553,43 @@ export class GroupChatManager {
             this._agentResponseCount.set(agent.agentId, (this._agentResponseCount.get(agent.agentId) ?? 0) + 1);
             this._responseChain.push(agent.agentId);
 
+            // Always show agent message in UI
+            const msg: GroupMessage = {
+                id: `agent-${agent.agentId}-${Date.now()}`,
+                role: 'agent',
+                agentId: agent.agentId,
+                agentName: agent.name,
+                agentColor: agent.color,
+                content,
+                mentions: [],
+                timestamp: Date.now(),
+            };
+            this._messages.push(msg);
+            this._notifyMessage(msg);
+
+            // ── Chain mode: continue to next queued agent ─────────────────────
+            if (this._chainQueue.length > 0) {
+                this._chainContext.push({ agentName: agent.name || agent.agentId, response: content });
+                const nextAgent = this._chainQueue.shift()!;
+                const chainMsg = this._buildChainMessage(nextAgent);
+                const nextRunId = crypto.randomUUID();
+                this._pendingRunIds.set(nextRunId, nextAgent.agentId);
+                try {
+                    await this._gateway!.sendChat(nextAgent.sessionKey, chainMsg, nextRunId);
+                } catch (err) {
+                    this._pendingRunIds.delete(nextRunId);
+                    console.error(`[GroupChat] Chain send to ${nextAgent.agentId} failed:`, err);
+                }
+                return; // Skip delegation routing when chaining
+            }
+
+            // ── Delegation mode (only when chain is complete) ─────────────────
             // Check for @mentions in agent response (agent-to-agent delegation)
             const agents = this.getAgents();
             const mentionedIds = parseMentions(content, agents).filter(id => id !== agent.agentId);
+
+            // Re-attach mentions to the message for display
+            msg.mentions = mentionedIds;
 
             // Determine if delegation should be routed
             let shouldRoute = mentionedIds.length > 0;
@@ -503,20 +626,6 @@ export class GroupChatManager {
                     }
                 }
             }
-
-            // Always notify the message (show in UI regardless of routing)
-            const msg: GroupMessage = {
-                id: `agent-${agent.agentId}-${Date.now()}`,
-                role: 'agent',
-                agentId: agent.agentId,
-                agentName: agent.name,
-                agentColor: agent.color,
-                content,
-                mentions: mentionedIds,
-                timestamp: Date.now(),
-            };
-            this._messages.push(msg);
-            this._notifyMessage(msg);
 
             // Route to mentioned agents if not blocked
             if (shouldRoute) {
@@ -555,8 +664,16 @@ export class GroupChatManager {
     // ── Per-Agent Model ───────────────────────────────────────────────────────
 
     /**
+     * Set the global model (from the main dropdown).
+     * Used when an agent has no per-agent modelOverride.
+     */
+    public setGlobalModel(model: string | undefined): void {
+        this._globalModel = model;
+    }
+
+    /**
      * Override model for a specific agent.
-     * Pass undefined to clear override (revert to agent default).
+     * Pass undefined to clear override (falls back to globalModel or agent default).
      */
     public async setAgentModel(agentId: string, model: string | undefined): Promise<void> {
         const agent = this._agents.get(agentId);
@@ -569,8 +686,9 @@ export class GroupChatManager {
         // Apply to agent's session via /model command
         if (this._gateway) {
             try {
-                const cmd = model ? `/model ${model}` : '/model default';
-                // Use sendChat fire-and-forget equivalent
+                // If no per-agent override, fall back to global model; else use agent default
+                const effectiveModel = model ?? this._globalModel;
+                const cmd = effectiveModel ? `/model ${effectiveModel}` : '/model default';
                 this._gateway.sendMessageFireAndForget(agent.sessionKey, cmd);
             } catch (err) {
                 console.warn(`[GroupChat] setAgentModel failed for ${agentId}:`, err);
@@ -607,6 +725,11 @@ export class GroupChatManager {
         this._responseChain = [];
         this._lastUserMessage = '';
         this._lastAgentResponse = new Map();
+        // Reset chain state
+        this._chainQueue = [];
+        this._chainContext = [];
+        this._chainOriginalContent = '';
+        this._chainPlanMode = false;
 
         this._notifyState();
     }
