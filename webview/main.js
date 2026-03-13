@@ -749,10 +749,13 @@
             messageInput.placeholder = i18n.sendPlaceholder || 'Ask a question...';
             respondedAgentHistory = []; // reset when leaving group
             renderedGroupMessages.clear(); // clear dedup cache
+            modelDropdown.style.display = '';  // show model dropdown in normal mode
             updateGroupToggleBtn();
             return;
         }
 
+        // Hide main model dropdown in group mode — per-agent models are set via badge context menu
+        modelDropdown.style.display = 'none';
         groupMemberBar.style.display = 'flex';
         groupMembersEl.innerHTML = '';
 

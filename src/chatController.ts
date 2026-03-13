@@ -357,10 +357,6 @@ export class ChatController {
                 if (this._groupManager.isGroupMode()) {
                     this._groupManager.leaveGroup();
                     this._webview?.postMessage({ type: 'groupStateUpdate', agents: [] });
-                } else {
-                    // Auto-add default agent when entering group mode
-                    const defaultAgentId = getAgentId();
-                    await this.addAgentToGroup(defaultAgentId);
                 }
                 break;
 
@@ -973,12 +969,6 @@ export class ChatController {
     // ── Group chat public API ─────────────────────────────────────────────────
 
     public async addAgentToGroup(agentId: string, model?: string): Promise<void> {
-        // Auto-add default agent if not already in group
-        const defaultAgentId = getAgentId();
-        if (!this._groupManager.hasAgent(defaultAgentId)) {
-            await this._groupManager.addAgent(defaultAgentId);
-        }
-
         const member = await this._groupManager.addAgent(agentId);
         
         // Set model if specified
