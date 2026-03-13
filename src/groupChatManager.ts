@@ -84,6 +84,7 @@ export class GroupChatManager {
     private _agentResponseCount: Map<string, number> = new Map();
     private _responseChain: string[] = [];  // for ping-pong detection
     private _lastUserMessage: string = '';  // for delegation context
+    private _lastAgentResponse: Map<string, string> = new Map(); // agentId → last full response
 
     // Callbacks
     private _messageCallbacks: GroupMessageCallback[] = [];
@@ -296,6 +297,7 @@ export class GroupChatManager {
         this._conversationDepth = 0;
         this._agentResponseCount = new Map();
         this._responseChain = [];
+        this._lastAgentResponse = new Map();
 
         // Anti-loop: reset round counter and set in-flight flag
         this._responseCountThisRound = 0;
@@ -393,20 +395,29 @@ export class GroupChatManager {
 
     /**
      * Build delegation message from one agent to another.
+     * Includes the sender's FULL response inline so the recipient never
+     * misses content due to group-context truncation.
      */
-    private _buildDelegationMessage(sender: AgentMember, content: string): string {
+    private _buildDelegationMessage(
+        sender: AgentMember,
+        content: string,
+        mentionedAgent: AgentMember
+    ): string {
         return [
             `[Group Chat — Task Delegation]`,
             `From: @${sender.name || sender.agentId}`,
+            `To: @${mentionedAgent.name || mentionedAgent.agentId}`,
             ``,
-            `Original user request: "${this._lastUserMessage}"`,
+            `Original user request:`,
+            `"${this._lastUserMessage}"`,
             ``,
-            `@${sender.name}'s message:`,
+            `Full message from @${sender.name || sender.agentId}:`,
             `---`,
             content,
             `---`,
             ``,
-            `Please respond to the above. Keep it concise and report results.`
+            `You have been assigned this task. Please execute and report results back to the group.`,
+            `Keep your response concise and focused.`,
         ].join('\n');
     }
 
@@ -445,6 +456,9 @@ export class GroupChatManager {
             if (!content) {
                 return;
             }
+
+            // Track full agent response for future retrieval
+            this._lastAgentResponse.set(agent.agentId, content);
 
             // Update delegation counters
             this._agentResponseCount.set(agent.agentId, (this._agentResponseCount.get(agent.agentId) ?? 0) + 1);
@@ -507,12 +521,12 @@ export class GroupChatManager {
             // Route to mentioned agents if not blocked
             if (shouldRoute) {
                 this._conversationDepth++;
-                const delegationContent = this._buildDelegationMessage(agent, content);
 
                 for (const targetId of mentionedIds) {
                     const targetAgent = this._agents.get(targetId);
                     if (!targetAgent) { continue; }
 
+                    const delegationContent = this._buildDelegationMessage(agent, content, targetAgent);
                     const runId = crypto.randomUUID();
                     this._pendingRunIds.set(runId, targetAgent.agentId);
                     try {
@@ -592,6 +606,7 @@ export class GroupChatManager {
         this._agentResponseCount = new Map();
         this._responseChain = [];
         this._lastUserMessage = '';
+        this._lastAgentResponse = new Map();
 
         this._notifyState();
     }
