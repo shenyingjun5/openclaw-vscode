@@ -54,5 +54,10 @@
     "think.low.full": "低",
     "think.medium.full": "中",
     "think.high.full": "高",
-    "think.xhigh.full": "超高"
+    "think.xhigh.full": "超高",
+    "groupToggle": "切换群组对话",
+    "addAgent": "添加助手到群组",
+    "leaveGroup": "离开群组",
+    "groupCostWarning": "群组模式会将消息发送给所有助手，Token 用量成倍增加",
+    "delegation": "任务委派"
 }

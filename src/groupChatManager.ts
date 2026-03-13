@@ -4,6 +4,7 @@
  * Singleton — shared across ChatController instances.
  */
 
+import * as vscode from 'vscode';
 import { GatewayClient } from './gateway';
 import { buildSessionKey } from './agentConfig';
 import { parseMentions } from './mentionParser';
@@ -24,13 +25,14 @@ export const AGENT_COLORS = [
 /** Max agent responses allowed per single user message (anti-loop) */
 const MAX_RESPONSES_PER_ROUND = 10;
 
-/** Guard instruction injected at the top of every group context */
-const LOOP_GUARD_PROMPT =
-    '[RULE: You are in a group chat with the user and other agents. ' +
-    'Only respond to the user\'s message above. ' +
-    'Do NOT reply just because another agent spoke. ' +
-    'Do NOT initiate new topics or ask other agents questions. ' +
-    'Wait for the user to direct you.]';
+/** Default max agent→agent delegation depth */
+const DEFAULT_MAX_DELEGATION_DEPTH = 3;
+
+/** Max times a single agent can respond per user message */
+const MAX_AGENT_RESPONSES_PER_ROUND = 2;
+
+/** Max total responses across all agents per user message */
+const MAX_TOTAL_RESPONSES = 8;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface AgentMember {
@@ -44,6 +46,7 @@ export interface AgentMember {
 
 export interface GroupMessage {
     id: string;
+    parentMessageId?: string;  // for threading/delegation chain
     role: 'user' | 'agent';
     agentId?: string;
     agentName?: string;
@@ -74,6 +77,13 @@ export class GroupChatManager {
     private _responseCountThisRound: number = 0;
     // Anti-loop: only fan-out triggered by user send
     private _userMessageInFlight: boolean = false;
+
+    // Delegation tracking
+    private _maxDelegationDepth: number = DEFAULT_MAX_DELEGATION_DEPTH;
+    private _conversationDepth: number = 0;
+    private _agentResponseCount: Map<string, number> = new Map();
+    private _responseChain: string[] = [];  // for ping-pong detection
+    private _lastUserMessage: string = '';  // for delegation context
 
     // Callbacks
     private _messageCallbacks: GroupMessageCallback[] = [];
@@ -191,6 +201,10 @@ export class GroupChatManager {
         this._agents.set(agentId, member);
 
         this._notifyState();
+
+        // Broadcast updated system prompt to all agents (including the new one)
+        this._broadcastSystemPrompt();
+
         return member;
     }
 
@@ -207,6 +221,9 @@ export class GroupChatManager {
 
         this._agents.delete(agentId);
         this._notifyState();
+
+        // Broadcast updated system prompt to remaining agents
+        this._broadcastSystemPrompt();
     }
 
     public getAgents(): AgentMember[] {
@@ -221,6 +238,47 @@ export class GroupChatManager {
         return this._agents.size > 0;
     }
 
+    // ── System Prompt Broadcasting ────────────────────────────────────────────
+
+    /**
+     * Broadcast updated system prompt to ALL agents so they know the current member list.
+     */
+    private async _broadcastSystemPrompt(): Promise<void> {
+        const members = this.getAgents();
+        for (const agent of members) {
+            const prompt = this._buildAgentSystemPrompt(agent);
+            this._gateway?.sendMessageFireAndForget(agent.sessionKey, prompt);
+        }
+    }
+
+    /**
+     * Build a per-agent system prompt with current group member list.
+     */
+    private _buildAgentSystemPrompt(forAgent: AgentMember): string {
+        const members = this.getAgents();
+        const memberLines = members.map(m => {
+            const suffix = m.agentId === forAgent.agentId ? ' ← You' : '';
+            return `- @${m.name} (${m.agentId})${suffix}`;
+        });
+
+        return [
+            '[system-setup:no-reply]',
+            '[Group Chat Mode]',
+            `You are @${forAgent.name} (${forAgent.agentId}).`,
+            '',
+            'Current group members:',
+            ...memberLines,
+            '',
+            'How to collaborate:',
+            '- When the user broadcasts a message (no @mention), decide if you should respond based on context.',
+            '- Use @name to delegate tasks: "@Alice please implement this plan"',
+            '- When another agent @mentions you, treat it as a task assignment and execute it.',
+            '- Keep responses focused. Report results back to the group.',
+            '- Do NOT @mention yourself.',
+            '- Do NOT start conversations unprompted with other agents.',
+        ].join('\n');
+    }
+
     // ── Messaging ─────────────────────────────────────────────────────────────
 
     /**
@@ -228,17 +286,23 @@ export class GroupChatManager {
      * Parses @mentions; broadcasts to all if no mention present.
      * Returns Map of agentId → runId for tracking.
      */
-    public async sendGroupMessage(content: string): Promise<Map<string, string>> {
+    public async sendGroupMessage(content: string, planMode: boolean = false): Promise<Map<string, string>> {
         if (!this._gateway) {
             throw new Error('GroupChatManager not initialized');
         }
+
+        // Save user message context and reset delegation tracking
+        this._lastUserMessage = content;
+        this._conversationDepth = 0;
+        this._agentResponseCount = new Map();
+        this._responseChain = [];
 
         // Anti-loop: reset round counter and set in-flight flag
         this._responseCountThisRound = 0;
         this._userMessageInFlight = true;
 
-        const agentIds = Array.from(this._agents.keys());
-        const mentions = parseMentions(content, agentIds);
+        const agents = this.getAgents();
+        const mentions = parseMentions(content, agents);
 
         // Record user message
         const userMsg: GroupMessage = {
@@ -264,9 +328,21 @@ export class GroupChatManager {
 
         // Build context prefix
         const contextPrefix = this._buildGroupContext(userMsg.id);
-        const fullMessage = contextPrefix
+        let fullMessage = contextPrefix
             ? `${contextPrefix}\n\n---\n[Your turn to respond]\n${content}`
             : content;
+
+        // Append plan mode suffix for user messages (not delegations)
+        if (planMode) {
+            fullMessage += '\n\n---- Plan Mode ----\n'
+                + '⚠️ PLAN MODE\n'
+                + 'Allowed: read, search, list\n'
+                + 'Forbidden: write, modify, delete, execute\n'
+                + 'Steps: 1) Understand the task 2) Break into small sub-tasks 3) Describe goal and impact for each step\n'
+                + 'Output: step-by-step plan\n'
+                + 'Wait for user "execute" before any write action\n'
+                + '---- Plan Mode ----';
+        }
 
         // Fan-out to target agents
         const runIds = new Map<string, string>();
@@ -302,8 +378,6 @@ export class GroupChatManager {
         }
 
         const lines: string[] = [
-            LOOP_GUARD_PROMPT,
-            '',
             '[Group Chat Context - Recent Messages]',
         ];
         for (const msg of recent) {
@@ -315,6 +389,25 @@ export class GroupChatManager {
         }
         lines.push('---');
         return lines.join('\n');
+    }
+
+    /**
+     * Build delegation message from one agent to another.
+     */
+    private _buildDelegationMessage(sender: AgentMember, content: string): string {
+        return [
+            `[Group Chat — Task Delegation]`,
+            `From: @${sender.name || sender.agentId}`,
+            ``,
+            `Original user request: "${this._lastUserMessage}"`,
+            ``,
+            `@${sender.name}'s message:`,
+            `---`,
+            content,
+            `---`,
+            ``,
+            `Please respond to the above. Keep it concise and report results.`
+        ].join('\n');
     }
 
     private async _fetchLatestAgentMessage(agent: AgentMember): Promise<void> {
@@ -353,6 +446,51 @@ export class GroupChatManager {
                 return;
             }
 
+            // Update delegation counters
+            this._agentResponseCount.set(agent.agentId, (this._agentResponseCount.get(agent.agentId) ?? 0) + 1);
+            this._responseChain.push(agent.agentId);
+
+            // Check for @mentions in agent response (agent-to-agent delegation)
+            const agents = this.getAgents();
+            const mentionedIds = parseMentions(content, agents).filter(id => id !== agent.agentId);
+
+            // Determine if delegation should be routed
+            let shouldRoute = mentionedIds.length > 0;
+            if (shouldRoute) {
+                // Check loop guards
+                if (this._conversationDepth >= this._maxDelegationDepth) {
+                    console.warn(`[GroupChat] Delegation depth limit reached (${this._conversationDepth}/${this._maxDelegationDepth})`);
+                    shouldRoute = false;
+                }
+
+                const agentCount = this._agentResponseCount.get(agent.agentId) ?? 0;
+                if (agentCount >= MAX_AGENT_RESPONSES_PER_ROUND) {
+                    console.warn(`[GroupChat] Agent ${agent.agentId} response limit reached (${agentCount}/${MAX_AGENT_RESPONSES_PER_ROUND})`);
+                    shouldRoute = false;
+                }
+
+                // Total responses check
+                let totalResponses = 0;
+                for (const count of this._agentResponseCount.values()) {
+                    totalResponses += count;
+                }
+                if (totalResponses >= MAX_TOTAL_RESPONSES) {
+                    console.warn(`[GroupChat] Total response limit reached (${totalResponses}/${MAX_TOTAL_RESPONSES})`);
+                    shouldRoute = false;
+                }
+
+                // Ping-pong detection: check if last 3 entries form A, B, A pattern
+                const chain = this._responseChain;
+                if (chain.length >= 3) {
+                    const last3 = chain.slice(-3);
+                    if (last3[0] === last3[2] && last3[0] !== last3[1]) {
+                        console.warn(`[GroupChat] Ping-pong detected: ${last3.join(' → ')}`);
+                        shouldRoute = false;
+                    }
+                }
+            }
+
+            // Always notify the message (show in UI regardless of routing)
             const msg: GroupMessage = {
                 id: `agent-${agent.agentId}-${Date.now()}`,
                 role: 'agent',
@@ -360,11 +498,31 @@ export class GroupChatManager {
                 agentName: agent.name,
                 agentColor: agent.color,
                 content,
-                mentions: [],
+                mentions: mentionedIds,
                 timestamp: Date.now(),
             };
             this._messages.push(msg);
             this._notifyMessage(msg);
+
+            // Route to mentioned agents if not blocked
+            if (shouldRoute) {
+                this._conversationDepth++;
+                const delegationContent = this._buildDelegationMessage(agent, content);
+
+                for (const targetId of mentionedIds) {
+                    const targetAgent = this._agents.get(targetId);
+                    if (!targetAgent) { continue; }
+
+                    const runId = crypto.randomUUID();
+                    this._pendingRunIds.set(runId, targetAgent.agentId);
+                    try {
+                        await this._gateway!.sendChat(targetAgent.sessionKey, delegationContent, runId);
+                    } catch (err) {
+                        this._pendingRunIds.delete(runId);
+                        console.error(`[GroupChat] Delegation to ${targetId} failed:`, err);
+                    }
+                }
+            }
         } catch (err) {
             console.warn(`[GroupChat] Failed to fetch message for ${agent.agentId}:`, err);
         }
@@ -408,6 +566,12 @@ export class GroupChatManager {
         this._notifyState();
     }
 
+    // ── Configuration ─────────────────────────────────────────────────────────
+
+    public setMaxDelegationDepth(depth: number): void {
+        this._maxDelegationDepth = depth;
+    }
+
     // ── Cleanup ───────────────────────────────────────────────────────────────
 
     /**
@@ -424,6 +588,10 @@ export class GroupChatManager {
         this._messages = [];
         this._pendingRunIds.clear();
         this._colorIndex = 0;
+        this._conversationDepth = 0;
+        this._agentResponseCount = new Map();
+        this._responseChain = [];
+        this._lastUserMessage = '';
 
         this._notifyState();
     }

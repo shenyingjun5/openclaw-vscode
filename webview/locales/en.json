@@ -54,5 +54,10 @@
     "think.low.full": "Low",
     "think.medium.full": "Medium",
     "think.high.full": "High",
-    "think.xhigh.full": "Extra High"
+    "think.xhigh.full": "Extra High",
+    "groupToggle": "Toggle group chat",
+    "addAgent": "Add agent to group",
+    "leaveGroup": "Leave group chat",
+    "groupCostWarning": "Group mode sends your message to all agents — token usage is multiplied",
+    "delegation": "delegation"
 }

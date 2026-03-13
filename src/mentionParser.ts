@@ -5,20 +5,21 @@
 
 /**
  * Parse @mentions from message text.
- * Returns deduplicated list of matched agent IDs (case-insensitive).
+ * Matches both agent IDs and agent names (case-insensitive, Unicode-aware).
+ * Always returns deduplicated list of agent IDs.
  */
-export function parseMentions(text: string, validAgentIds: string[]): string[] {
-    const mentionRegex = /@(\w[\w-]*)/g;
+export function parseMentions(text: string, agents: Array<{ agentId: string; name: string }>): string[] {
+    const mentionRegex = /@([\w\u0E00-\u0E7F][\w\u0E00-\u0E7F-]*)/g;
     const mentioned: string[] = [];
     let match: RegExpExecArray | null;
 
     while ((match = mentionRegex.exec(text)) !== null) {
-        const token = match[1];
-        const found = validAgentIds.find(
-            id => id.toLowerCase() === token.toLowerCase()
+        const token = match[1].toLowerCase();
+        const found = agents.find(
+            a => a.agentId.toLowerCase() === token || a.name.toLowerCase() === token
         );
-        if (found && !mentioned.includes(found)) {
-            mentioned.push(found);
+        if (found && !mentioned.includes(found.agentId)) {
+            mentioned.push(found.agentId);
         }
     }
     return mentioned;

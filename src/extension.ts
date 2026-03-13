@@ -53,6 +53,14 @@ export function activate(context: vscode.ExtensionContext) {
         ),
 
         // Group chat commands
+        vscode.commands.registerCommand('openclaw.toggleGroupMode', async () => {
+            const { GroupChatManager } = await import('./groupChatManager');
+            if (GroupChatManager.getInstance().isGroupMode()) {
+                leaveGroupChat(chatProvider);
+            } else {
+                addAgentToGroup(gatewayClient, chatProvider);
+            }
+        }),
         vscode.commands.registerCommand('openclaw.addAgentToGroup', () =>
             addAgentToGroup(gatewayClient, chatProvider)
         ),

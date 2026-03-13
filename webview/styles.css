@@ -1916,6 +1916,38 @@ body {
     color: var(--vscode-focusBorder, #007acc);
 }
 
+/* Group toggle button active state */
+.group-toggle-btn.active {
+    color: var(--vscode-charts-blue, #3b82f6);
+}
+
+/* Leave group button in bar */
+.group-leave-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-left: 4px;
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+}
+.group-leave-btn:hover {
+    opacity: 1;
+    color: var(--vscode-errorForeground, #f44);
+}
+
+/* Delegation indicator */
+.group-delegation-indicator {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.6;
+    margin-bottom: 2px;
+    padding-left: 2px;
+}
+
 /* Group agent message */
 .message.group-agent {
     background: transparent;

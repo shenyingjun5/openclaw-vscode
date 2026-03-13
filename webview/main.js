@@ -53,7 +53,10 @@
         'ctx.setModel': 'Set Model',
         'ctx.remove': 'Remove from group',
         'ctx.modelDefault': 'Use Agent Default',
-        groupLoopWarning: '⚠️ Group loop guard triggered — agents stopped responding. Send a new message to continue.'
+        groupLoopWarning: '⚠️ Group loop guard triggered — agents stopped responding. Send a new message to continue.',
+        groupToggle: 'Toggle group chat',
+        groupCostWarning: 'Group mode sends your message to all agents — token usage is multiplied',
+        delegation: 'delegation'
     };
 
     // Load locale
@@ -106,7 +109,10 @@
                 'ctx.setModel': '切换模型',
                 'ctx.remove': '从群组移除',
                 'ctx.modelDefault': '使用助手默认模型',
-                groupLoopWarning: '⚠️ 检测到群组循环 — 已停止自动响应。发送新消息继续对话。'
+                groupLoopWarning: '⚠️ 检测到群组循环 — 已停止自动响应。发送新消息继续对话。',
+                groupToggle: '切换群组对话',
+                groupCostWarning: '群组模式会将消息发送给所有助手，Token 用量成倍增加',
+                delegation: '任务委派'
             };
         }
         applyI18n();
@@ -218,6 +224,8 @@
     const groupMemberBar = document.getElementById('groupMemberBar');
     const groupMembersEl = document.getElementById('groupMembers');
     const groupAddBtn = document.getElementById('groupAddBtn');
+    const groupLeaveBtn = document.getElementById('groupLeaveBtn');
+    const groupToggleBtn = document.getElementById('groupToggleBtn');
     const mentionPickerEl = document.getElementById('mentionPicker');
     const mentionPickerList = document.getElementById('mentionPickerList');
 
@@ -572,7 +580,11 @@
         const color = escapeHtml(msg.agentColor || '#888');
         const name = escapeHtml(msg.agentName || msg.agentId || 'Agent');
 
-        let html = `<div class="group-agent-header">`;
+        let html = '';
+        if (msg.parentMessageId) {
+            html += `<div class="group-delegation-indicator">↳ ${i18n.delegation || 'delegation'}</div>`;
+        }
+        html += `<div class="group-agent-header">`;
         html += `<div class="group-agent-avatar" style="background:${color}">${escapeHtml(initial)}</div>`;
         html += `<span class="group-agent-name" style="color:${color}">${name}</span>`;
         html += `</div>`;
@@ -648,6 +660,7 @@
         if (!groupMode) {
             groupMemberBar.style.display = 'none';
             messageInput.placeholder = i18n.sendPlaceholder || 'Ask a question...';
+            updateGroupToggleBtn();
             return;
         }
 
@@ -678,6 +691,8 @@
 
         // update input placeholder hint
         messageInput.placeholder = i18n.groupModeHint || 'Use @name to mention a specific agent...';
+
+        updateGroupToggleBtn();
     }
 
     /** Shorten model name: strip provider prefix, keep last segment */
@@ -836,6 +851,34 @@
     groupAddBtn.addEventListener('click', () => {
         vscode.postMessage({ type: 'addAgentToGroup' });
     });
+
+    // Leave group button inside member bar
+    if (groupLeaveBtn) {
+        groupLeaveBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'leaveGroupChat' });
+        });
+    }
+
+    // Toggle group mode button in header
+    function updateGroupToggleBtn() {
+        if (!groupToggleBtn) return;
+        const use = groupToggleBtn.querySelector('use');
+        if (groupMode) {
+            use.setAttribute('href', '#icon-group-leave');
+            groupToggleBtn.title = i18n.leaveGroup || 'Leave group chat';
+            groupToggleBtn.classList.add('active');
+        } else {
+            use.setAttribute('href', '#icon-group-add');
+            groupToggleBtn.title = i18n.addAgent || 'Add agent to group';
+            groupToggleBtn.classList.remove('active');
+        }
+    }
+
+    if (groupToggleBtn) {
+        groupToggleBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'toggleGroupMode' });
+        });
+    }
 
     // ── @ Mention Autocomplete ────────────────────────────────────────────────
 
@@ -1615,7 +1658,7 @@ Try:
         if (groupMode && groupAgents.length > 0) {
             isSending = true;
             updateSendButtonState();
-            vscode.postMessage({ type: 'sendGroupMessage', content: fullMessage });
+            vscode.postMessage({ type: 'sendGroupMessage', content: fullMessage, planMode: planMode });
             return;
         }
 

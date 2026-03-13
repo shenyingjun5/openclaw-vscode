@@ -118,6 +118,16 @@ export class ChatController {
             : _sessionKey.split('-').pop() || 'default';
         this._groupManager.initialize(_gateway, windowId);
 
+        // 监听 Group Chat delegation depth 配置变化
+        this._disposables.push(
+            vscode.workspace.onDidChangeConfiguration(e => {
+                if (e.affectsConfiguration('openclaw.groupChat.maxDelegationDepth')) {
+                    const depth = vscode.workspace.getConfiguration('openclaw').get<number>('groupChat.maxDelegationDepth', 3);
+                    this._groupManager.setMaxDelegationDepth(depth);
+                }
+            })
+        );
+
         // 监听语言设置变化，实时更新 UI 并重新发送上下文
         this._disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
@@ -330,6 +340,15 @@ export class ChatController {
 
             case 'sendGroupMessage':
                 await this._sendGroupMessage(data.content);
+                break;
+
+            case 'toggleGroupMode':
+                if (this._groupManager.isGroupMode()) {
+                    this._groupManager.leaveGroup();
+                    this._webview?.postMessage({ type: 'groupStateUpdate', agents: [] });
+                } else {
+                    vscode.commands.executeCommand('openclaw.addAgentToGroup');
+                }
                 break;
 
             case 'setAgentModel':
@@ -964,7 +983,7 @@ export class ChatController {
             return;
         }
         try {
-            const runIds = await this._groupManager.sendGroupMessage(content);
+            const runIds = await this._groupManager.sendGroupMessage(content, this._planMode);
             const agentIds = Array.from(runIds.keys());
             this._webview?.postMessage({ type: 'waitingGroupReply', agentIds });
         } catch (err: any) {
