@@ -679,6 +679,10 @@ export class GroupChatManager {
                 console.log(`[GroupChat] Created chain runId ${nextRunId} for nextAgent ${nextAgent.agentId}`);
                 try {
                     await this._gateway!.sendChat(nextAgent.sessionKey, chainMsg, nextRunId);
+
+                    // Fallback: if event doesn't arrive within timeout, poll history directly.
+                    // This handles cases where the chat event is missed/dropped.
+                    this._startChainFallbackPoll(nextAgent, nextRunId, 5000, 120000);
                 } catch (err) {
                     this._pendingRunIds.delete(nextRunId);
                     console.error(`[GroupChat] Chain send to ${nextAgent.agentId} failed:`, err);
@@ -753,6 +757,79 @@ export class GroupChatManager {
         } catch (err) {
             console.warn(`[GroupChat] Failed to fetch message for ${agent.agentId}:`, err);
         }
+    }
+
+    // ── Chain Fallback Polling ────────────────────────────────────────────────
+
+    /**
+     * Start a fallback polling timer for chain agents.
+     * If the chat event doesn't arrive within the timeout, poll history directly.
+     * This handles cases where events are missed/dropped due to race conditions.
+     */
+    private _startChainFallbackPoll(
+        agent: AgentMember,
+        runId: string,
+        intervalMs: number,
+        maxWaitMs: number
+    ): void {
+        const startTime = Date.now();
+
+        const poll = () => {
+            // Stop if runId was already processed (event arrived normally)
+            if (!this._pendingRunIds.has(runId)) {
+                return;
+            }
+            // Stop if agent was removed
+            if (!this._agents.has(agent.agentId)) {
+                this._pendingRunIds.delete(runId);
+                return;
+            }
+            // Stop if exceeded max wait time
+            if (Date.now() - startTime > maxWaitMs) {
+                console.warn(`[GroupChat] Chain fallback timeout for ${agent.agentId} after ${maxWaitMs}ms`);
+                this._pendingRunIds.delete(runId);
+                return;
+            }
+
+            // Poll history to check if agent has responded
+            this._gateway?.getHistory(agent.sessionKey, 5).then(history => {
+                // If runId was consumed while we were fetching, stop
+                if (!this._pendingRunIds.has(runId)) { return; }
+
+                const lastAssistant = [...history].reverse().find(m => m.role === 'assistant');
+                if (!lastAssistant) {
+                    // No response yet, continue polling
+                    setTimeout(poll, intervalMs);
+                    return;
+                }
+
+                const content = this._extractContent(lastAssistant);
+                if (!content || isSentinelMessage(content)) {
+                    setTimeout(poll, intervalMs);
+                    return;
+                }
+
+                // Check if this response is already displayed
+                const alreadyShown = this._messages.some(
+                    m => m.role === 'agent' && m.agentId === agent.agentId && m.content === content
+                );
+                if (alreadyShown) {
+                    setTimeout(poll, intervalMs);
+                    return;
+                }
+
+                // Found new response — process it as if event arrived
+                console.log(`[GroupChat] Fallback poll found response from ${agent.agentId}`);
+                this._pendingRunIds.delete(runId);
+                this._fetchLatestAgentMessage(agent);
+            }).catch(() => {
+                // Retry on error
+                setTimeout(poll, intervalMs);
+            });
+        };
+
+        // Start polling after initial delay
+        setTimeout(poll, intervalMs);
     }
 
     // ── Group History ─────────────────────────────────────────────────────────
