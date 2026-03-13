@@ -313,40 +313,8 @@ async function addAgentToGroup(
         return;
     }
 
-    // Show model selection menu
-    let selectedModel: string | undefined;
-    try {
-        const { models } = await gatewayClient.getModels();
-        if (models.length > 0) {
-            const modelItems: vscode.QuickPickItem[] = [
-                { label: '$(settings) Default', description: '(use global or agent default)' },
-                ...models.map(m => ({
-                    label: `$(gear) ${m.name}`,
-                    description: m.id,
-                })),
-            ];
-
-            const selectedModelItem = await vscode.window.showQuickPick(modelItems, {
-                title: `OpenClaw — Select Model for ${agentId}`,
-                placeHolder: 'Select a model (or use default)...',
-            });
-
-            if (selectedModelItem) {
-                // If "Default" is selected, keep selectedModel undefined
-                if (selectedModelItem.description !== '(use global or agent default)') {
-                    selectedModel = selectedModelItem.description;
-                }
-            } else {
-                // User cancelled model selection
-                return;
-            }
-        }
-    } catch (err) {
-        // If model fetching fails, just proceed with undefined (default)
-        console.warn('Failed to fetch models:', err);
-    }
-
-    await chatProvider.addAgentToGroup(agentId, selectedModel);
+    // Add agent with default model — user can change model later via badge context menu
+    await chatProvider.addAgentToGroup(agentId);
 }
 
 /**
