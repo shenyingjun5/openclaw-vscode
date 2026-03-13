@@ -257,26 +257,9 @@ export class GroupChatManager {
 
         this._notifyState();
 
-        // Send system prompt to the NEW agent using sendChat (awaited) to ensure
-        // the gateway creates the session before any subsequent commands (/model).
-        // Other existing agents get fire-and-forget updates (session already exists).
-        if (this._gateway) {
-            const prompt = this._buildAgentSystemPrompt(member);
-            const initRunId = `init-${agentId}-${Date.now()}`;
-            try {
-                await this._gateway.sendChat(member.sessionKey, prompt, initRunId);
-            } catch (err) {
-                console.warn(`[GroupChat] Failed to init session for ${agentId}:`, err);
-            }
-
-            // Update other existing agents with new member list (fire-and-forget)
-            for (const agent of this._agents.values()) {
-                if (agent.agentId !== agentId) {
-                    const updatePrompt = this._buildAgentSystemPrompt(agent);
-                    this._gateway.sendMessageFireAndForget(agent.sessionKey, updatePrompt);
-                }
-            }
-        }
+        // Broadcast system prompt to all agents (fire-and-forget).
+        // New agent session will be created by gateway on first message.
+        this._broadcastSystemPrompt().catch(() => {});
 
         return member;
     }
@@ -781,19 +764,19 @@ export class GroupChatManager {
 
         agent.modelOverride = model;
 
-        // Apply to agent's session via /model command (fire-and-forget).
-        // IMPORTANT: Do NOT use gateway.setSessionModel() here — it uses
-        // _wsClient.sendMessage() which registers a blocking chat event listener
-        // that matches by sessionKey only (no runId check). This can consume
-        // or race with actual user-triggered chat events for the same session.
-        // sendMessageFireAndForget uses sendRpc('chat.send') which is non-blocking.
+        // Apply to agent's session via /model command.
+        // Use fire-and-forget with a unique idempotency key to avoid consuming
+        // events for actual user messages.
         if (this._gateway) {
             try {
                 const effectiveModel = model ?? this._globalModel ?? 'default';
                 const modelCmd = effectiveModel && effectiveModel !== 'default'
                     ? `/model ${effectiveModel}`
                     : '/model default';
+                // Use sendMessageFireAndForget to avoid blocking and event conflicts.
+                // Model command will be processed by gateway on the agent session.
                 this._gateway.sendMessageFireAndForget(agent.sessionKey, modelCmd);
+                console.log(`[GroupChat] Set model for ${agentId}: ${modelCmd}`);
             } catch (err) {
                 console.warn(`[GroupChat] setAgentModel failed for ${agentId}:`, err);
             }
