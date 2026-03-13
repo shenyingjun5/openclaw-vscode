@@ -242,6 +242,8 @@
     // Group chat DOM
     const groupMemberBar = document.getElementById('groupMemberBar');
     const groupMembersEl = document.getElementById('groupMembers');
+    const groupLeaveBtn = document.getElementById('groupLeaveBtn');
+    const groupToggleBtn = document.getElementById('groupToggleBtn');
     const mentionPickerEl = document.getElementById('mentionPicker');
     const mentionPickerList = document.getElementById('mentionPickerList');
 
@@ -744,17 +746,16 @@
 
         if (!groupMode) {
             groupMemberBar.style.display = 'none';
-            refreshBtn.style.display = '';  // show refresh button in normal mode
             messageInput.placeholder = i18n.sendPlaceholder || 'Ask a question...';
             respondedAgentHistory = []; // reset when leaving group
             renderedGroupMessages.clear(); // clear dedup cache
             modelDropdown.style.display = '';  // show model dropdown in normal mode
+            updateGroupToggleBtn();
             return;
         }
 
-        // Hide main model dropdown and refresh button in group mode
+        // Hide main model dropdown in group mode — per-agent models are set via badge context menu
         modelDropdown.style.display = 'none';
-        refreshBtn.style.display = 'none';
         groupMemberBar.style.display = 'flex';
         groupMembersEl.innerHTML = '';
 
@@ -782,6 +783,8 @@
 
         // update input placeholder hint
         messageInput.placeholder = i18n.groupModeHint || 'Use @name to mention a specific agent...';
+
+        updateGroupToggleBtn();
     }
 
     /** Shorten model name: strip provider prefix, keep last segment */
@@ -940,8 +943,28 @@
     }
 
     // Leave group button inside member bar
-    // Group toggle button removed — entering group mode is done via addAgentToGroup command
-    // Leaving group is done by removing all agents via context menu
+    if (groupLeaveBtn) {
+        groupLeaveBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'leaveGroupChat' });
+        });
+    }
+
+    // Group toggle button in header — always means "add agent to group"
+    // Leaving group is done via the ✕ button inside the member bar
+    function updateGroupToggleBtn() {
+        if (!groupToggleBtn) return;
+        const use = groupToggleBtn.querySelector('use');
+        use.setAttribute('href', '#icon-group-add');
+        groupToggleBtn.title = i18n.groupToggle || 'Add agent to group';
+        // Visual active state when group is active (informational only)
+        groupToggleBtn.classList.toggle('active', groupMode);
+    }
+
+    if (groupToggleBtn) {
+        groupToggleBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'addAgentToGroup' });
+        });
+    }
 
     // ── @ Mention Autocomplete ────────────────────────────────────────────────
 
