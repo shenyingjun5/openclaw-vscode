@@ -757,13 +757,11 @@ export class GroupChatManager {
 
         agent.modelOverride = model;
 
-        // Apply to agent's session via /model command
+        // Apply to agent's session via gateway.setSessionModel (proper /model command)
         if (this._gateway) {
             try {
-                // If no per-agent override, fall back to global model; else use agent default
-                const effectiveModel = model ?? this._globalModel;
-                const cmd = effectiveModel ? `/model ${effectiveModel}` : '/model default';
-                this._gateway.sendMessageFireAndForget(agent.sessionKey, cmd);
+                const effectiveModel = model ?? this._globalModel ?? 'default';
+                await this._gateway.setSessionModel(agent.sessionKey, effectiveModel);
             } catch (err) {
                 console.warn(`[GroupChat] setAgentModel failed for ${agentId}:`, err);
             }

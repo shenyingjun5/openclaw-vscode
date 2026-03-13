@@ -595,13 +595,17 @@
      * User messages are already shown by sendMessageNow — skip them here.
      */
     function renderGroupMessage(msg) {
+        console.log(`[Group] renderGroupMessage called with:`, msg);
+        
         if (!msg || msg.role === 'user') {
+            console.log(`[Group] Skipping user message or null`);
             // User messages already rendered in sendMessageNow — do not duplicate
             return;
         }
 
         // Empty content = error/aborted, remove thinking indicator for that agent
         if (!msg.content) {
+            console.log(`[Group] Empty content for agent ${msg.agentId}, removing thinking indicator`);
             removeAgentThinking(msg.agentId);
             return;
         }
@@ -618,6 +622,7 @@
             return;
         }
         agentHashes.add(contentHash);
+        console.log(`[Group] Rendering message from ${msg.agentId}:`, msg.content.substring(0, 100));
 
         removeAgentThinking(msg.agentId);
 
