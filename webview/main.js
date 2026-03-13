@@ -149,6 +149,7 @@
     let groupMode = false;
     let groupAgents = [];        // Array of { agentId, name, avatar, color }
     let groupWaitingIds = new Set(); // agentIds currently generating reply
+    let lastRespondedAgentId = null; // agentId of the most recent agent reply (for auto-@mention on execute)
     let mentionPickerIndex = 0;  // selected index in mention picker
     let attachments = []; // { type: 'file'|'image'|'reference', name, path?, data? }
     let messageQueue = []; // 消息队列: { id, text, attachments, createdAt }
@@ -659,6 +660,7 @@
         if (!groupMode) {
             groupMemberBar.style.display = 'none';
             messageInput.placeholder = i18n.sendPlaceholder || 'Ask a question...';
+            lastRespondedAgentId = null; // reset when leaving group
             updateGroupToggleBtn();
             return;
         }
@@ -1640,7 +1642,28 @@ Try:
             const hasMention = groupAgents.some(a =>
                 fullMessage.includes('@' + (a.name || a.agentId))
             );
-            if (!hasMention) {
+
+            // Auto-prepend @lastAgent for confirm/execute commands in plan mode
+            if (!hasMention && planMode && lastRespondedAgentId) {
+                const confirmCommands = ['execute', 'go', 'yes', 'ok', 'y', 'run',
+                    'ดำเนินการ', 'ยืนยัน', 'เริ่ม', '执行', '继续', '确认', '开始'];
+                const trimmedInput = text.trim().toLowerCase();
+                const isConfirm = confirmCommands.some(cmd => trimmedInput === cmd);
+                if (isConfirm) {
+                    const lastAgent = groupAgents.find(a => a.agentId === lastRespondedAgentId);
+                    if (lastAgent) {
+                        const mention = '@' + (lastAgent.name || lastAgent.agentId);
+                        fullMessage = mention + ' ' + fullMessage;
+                        // Update display text too
+                        text = mention + ' ' + text;
+                    }
+                }
+            }
+
+            const hasMentionFinal = groupAgents.some(a =>
+                fullMessage.includes('@' + (a.name || a.agentId))
+            );
+            if (!hasMentionFinal) {
                 showGroupWarningToast(i18n.groupMentionRequired ||
                     '⚠️ Please @mention at least one agent (e.g. @AgentName your request).');
                 // Do NOT clear the input — let user add a mention and retry
@@ -2027,7 +2050,14 @@ Try:
             if (!text && attachments.length === 0) {
                 // Plan mode: ถ้ามีประวัติข้อความแล้ว กด enter = ส่ง "execute"
                 if (planMode && messages && messages.children && messages.children.length > 0) {
-                    messageInput.value = 'execute';
+                    // Group mode: auto-tag last responding agent
+                    if (groupMode && lastRespondedAgentId) {
+                        const lastAgent = groupAgents.find(a => a.agentId === lastRespondedAgentId);
+                        const mention = lastAgent ? '@' + (lastAgent.name || lastAgent.agentId) : null;
+                        messageInput.value = mention ? mention + ' execute' : 'execute';
+                    } else {
+                        messageInput.value = 'execute';
+                    }
                     sendMessage();
                     return;
                 }
@@ -2508,6 +2538,10 @@ Try:
                 // Track reply completion for any agent message (including empty/error cases).
                 // Always delete the agentId so the waiting set doesn't get stuck.
                 if (message.role === 'agent') {
+                    // Track last responding agent for auto-@mention on plan-mode execute
+                    if (message.content && message.agentId) {
+                        lastRespondedAgentId = message.agentId;
+                    }
                     groupWaitingIds.delete(message.agentId);
                     if (groupWaitingIds.size === 0) {
                         isSending = false;
