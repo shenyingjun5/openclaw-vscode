@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { GatewayClient } from './gateway';
 import { ChatSessionManager } from './chatSessionManager';
 import { ChatController, WebviewAdapter } from './chatController';
+import { getAgentId, buildSessionKey } from './agentConfig';
 
 /**
  * 侧边栏 Webview 适配器
@@ -16,16 +17,18 @@ class SidebarAdapter implements WebviewAdapter {
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private readonly _controller: ChatController;
+    private _controller: ChatController;
     private readonly _gateway: GatewayClient;
+    private readonly _windowId: string;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         gateway: GatewayClient
     ) {
         this._gateway = gateway;
-        const windowId = vscode.env.sessionId.slice(0, 8);
-        const sessionKey = `agent:main:vscode-main-${windowId}`;
+        this._windowId = vscode.env.sessionId.slice(0, 8);
+        const agentId = getAgentId();
+        const sessionKey = buildSessionKey(agentId, `vscode-main-${this._windowId}`);
 
         const sessionManager = new ChatSessionManager(_extensionUri);
         this._controller = new ChatController(_extensionUri, gateway, sessionManager, sessionKey);
@@ -111,5 +114,42 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._controller.sessionManager.resetSession(this._controller.sessionKey);
         // 3. Clear webview messages
         this._controller.clearChat();
+    }
+
+    /**
+     * Switch to a different agent.
+     * - Deletes the old session from Gateway
+     * - Creates a new session key for the new agent
+     * - Resets session state and context setup
+     * - Refreshes agent identity
+     */
+    public async changeAgent(newAgentId: string): Promise<void> {
+        // 1. Delete old session
+        this._gateway.deleteSession(this._controller.sessionKey).catch(() => {});
+        this._controller.sessionManager.resetSession(this._controller.sessionKey);
+
+        // 2. Build new session key with new agent
+        const newSessionKey = buildSessionKey(newAgentId, `vscode-main-${this._windowId}`);
+
+        // 3. Create a new controller with the new session key
+        const sessionManager = new ChatSessionManager(this._extensionUri);
+        this._controller = new ChatController(
+            this._extensionUri,
+            this._gateway,
+            sessionManager,
+            newSessionKey
+        );
+
+        // 4. Re-bind webview if it's already resolved
+        if (this._view) {
+            this._controller.setWebview(new SidebarAdapter(this._view));
+            await this._controller.sessionManager.initProjectConfig();
+            // Clear messages in webview
+            this._controller.clearChat();
+            // Send context setup for the new session
+            await this._controller.sessionManager.sendContextSetup(this._gateway, newSessionKey);
+        }
+
+        vscode.window.showInformationMessage(`OpenClaw: Switched to agent "${newAgentId}"`);
     }
 }

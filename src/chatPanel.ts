@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { GatewayClient } from './gateway';
 import { ChatSessionManager } from './chatSessionManager';
 import { ChatController, WebviewAdapter, t } from './chatController';
+import { getAgentId, buildSessionKey } from './agentConfig';
 
 /**
  * 独立面板 Webview 适配器
@@ -106,9 +107,10 @@ export class ChatPanel {
         this._gateway = gateway;
         this._panelId = panelId;
 
-        // 创建 session ID
+        // 创建 session ID — uses currently configured agent
         const windowId = vscode.env.sessionId.slice(0, 8);
-        const sessionKey = `agent:main:vscode-panel-${windowId}-${panelId}`;
+        const agentId = getAgentId();
+        const sessionKey = buildSessionKey(agentId, `vscode-panel-${windowId}-${panelId}`);
 
         // 初始化 SessionManager 和 Controller
         const sessionManager = new ChatSessionManager(extensionUri);

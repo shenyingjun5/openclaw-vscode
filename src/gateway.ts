@@ -1090,10 +1090,12 @@ export class GatewayClient {
     /**
      * 获取 AI 身份信息（名称、头像）
      */
-    public async getAgentIdentity(): Promise<{ name: string; avatar: string } | null> {
+    public async getAgentIdentity(agentId?: string): Promise<{ name: string; avatar: string } | null> {
         if (this._mode === 'ws' && this._wsClient) {
             try {
-                const result = await this._wsClient.sendRpc('agent.identity.get', {});
+                const params: any = {};
+                if (agentId) { params.agentId = agentId; }
+                const result = await this._wsClient.sendRpc('agent.identity.get', params);
                 return {
                     name: result?.name || '',
                     avatar: result?.avatar || ''
@@ -1104,5 +1106,26 @@ export class GatewayClient {
             }
         }
         return null;
+    }
+
+    /**
+     * 获取 Agent 列表（从 Gateway RPC agents.list）
+     */
+    public async getAgentList(): Promise<Array<{ id: string; name?: string }>> {
+        if (this._mode === 'ws' && this._wsClient) {
+            try {
+                const result = await this._wsClient.sendRpc('agents.list', {});
+                if (Array.isArray(result?.agents)) {
+                    return result.agents.map((a: any) => ({
+                        id: String(a.id || '').trim(),
+                        name: typeof a.name === 'string' ? a.name.trim() : undefined
+                    })).filter((a: any) => a.id);
+                }
+            } catch (err) {
+                console.warn('[Gateway] 获取 Agent 列表失败:', err);
+            }
+        }
+        // Fallback: return just 'main'
+        return [{ id: 'main' }];
     }
 }

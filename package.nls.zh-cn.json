@@ -24,5 +24,7 @@
   "command.newSession.title": "新建会话",
   "command.clearChat.title": "清空对话",
   "command.showConnectionStatus.title": "查看连接状态",
-  "command.closeChat.title": "关闭对话"
+  "command.closeChat.title": "关闭对话",
+  "command.selectAgent.title": "切换 Agent",
+  "config.agentId.description": "要连接的 Agent ID（例如 main、alice）。默认：main。"
 }

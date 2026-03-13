@@ -6,6 +6,7 @@ import { ChangeParser } from './changeParser';
 import { ChangeManager } from './changeManager';
 import { DiffProvider } from './diffProvider';
 import { LanguageManager } from './languageManager';
+import { getAgentId, buildSessionKey } from './agentConfig';
 
 // i18n helper - 语言跟随 openclaw.aiOutputLanguage 设置
 function getLocale(): string {
@@ -483,7 +484,9 @@ export class ChatController {
 
             // sessionKey 匹配
             const eventSessionKey = payload.sessionKey || '';
-            if (!eventSessionKey.includes(this._sessionKey.replace('agent:main:', ''))) return;
+            // Dynamic suffix extraction — strips "agent:{agentId}:" prefix
+            const sessionSuffix = this._sessionKey.replace(/^agent:[^:]+:/, '');
+            if (!eventSessionKey.includes(sessionSuffix)) return;
 
             // runId 匹配：如果事件有 runId 且与 chatRunId 不同，忽略 delta
             if (payload.runId && payload.runId !== this._chatRunId) {
@@ -791,7 +794,8 @@ export class ChatController {
     }
 
     public newSession() {
-        this._sessionKey = `agent:main:vscode-${Date.now()}`;
+        const agentId = getAgentId();
+        this._sessionKey = buildSessionKey(agentId, `vscode-${Date.now()}`);
         this._sessionManager.resetSession(this._sessionKey);
         this._webview?.postMessage({ type: 'clearMessages' });
         vscode.window.showInformationMessage(`${t('newSession')}: ${this._sessionKey}`);

@@ -5,6 +5,7 @@ import { GatewayClient } from './gateway';
 import { DiffProvider } from './diffProvider';
 import { LanguageManager } from './languageManager';
 import { ChangeManager } from './changeManager';
+import { getAgentId, setAgentId } from './agentConfig';
 
 let gatewayClient: GatewayClient;
 let chatProvider: ChatViewProvider;
@@ -46,7 +47,10 @@ export function activate(context: vscode.ExtensionContext) {
             await chatProvider.closeChat();
             // 折叠侧边栏
             vscode.commands.executeCommand('workbench.action.closeSidebar');
-        })
+        }),
+        vscode.commands.registerCommand('openclaw.selectAgent', () =>
+            selectAgent(gatewayClient, chatProvider, agentStatusBar)
+        )
     );
 
     // 连接 Gateway
@@ -54,13 +58,20 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage(`OpenClaw: 连接失败 - ${err.message}`);
     });
 
-    // 状态栏
+    // 状态栏 — main status (connection)
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBar.text = '$(comment-discussion) OpenClaw';
     statusBar.tooltip = 'Click to open OpenClaw chat';
     statusBar.command = 'openclaw.openChatPanel';
     statusBar.show();
     context.subscriptions.push(statusBar);
+
+    // 状态栏 — agent selector
+    const agentStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+    agentStatusBar.command = 'openclaw.selectAgent';
+    updateAgentStatusBar(agentStatusBar);
+    agentStatusBar.show();
+    context.subscriptions.push(agentStatusBar);
 
     // 更新状态栏
     gatewayClient.onConnectionChange((connected) => {
@@ -93,6 +104,9 @@ export function activate(context: vscode.ExtensionContext) {
                 gatewayClient.reloadTokenAndReconnect(newUrl).catch(err => {
                     console.warn('[OpenClaw] 配置变更后重连失败:', err);
                 });
+            }
+            if (e.affectsConfiguration('openclaw.agentId')) {
+                updateAgentStatusBar(agentStatusBar);
             }
         })
     );
@@ -164,6 +178,72 @@ async function showConnectionStatus() {
             vscode.commands.executeCommand('workbench.action.openSettings', 'openclaw');
         }
     }
+}
+
+/** Updates the agent status bar label to show the current agent ID. */
+function updateAgentStatusBar(statusBar: vscode.StatusBarItem) {
+    const agentId = getAgentId();
+    statusBar.text = `$(person) ${agentId}`;
+    statusBar.tooltip = `OpenClaw Agent: ${agentId} — Click to switch agent`;
+}
+
+/**
+ * Shows a QuickPick to let the user select an agent.
+ * Fetches agent list from Gateway; falls back to 'main' if disconnected.
+ */
+async function selectAgent(
+    gatewayClient: GatewayClient,
+    chatProvider: ChatViewProvider,
+    statusBar: vscode.StatusBarItem
+) {
+    const currentAgentId = getAgentId();
+
+    // Fetch agent list from Gateway
+    let agents: Array<{ id: string; name?: string }> = [];
+    try {
+        agents = await gatewayClient.getAgentList();
+    } catch {
+        agents = [{ id: 'main' }];
+    }
+
+    // Ensure current agent is in the list
+    if (!agents.find(a => a.id === currentAgentId)) {
+        agents.unshift({ id: currentAgentId });
+    }
+
+    // Build QuickPick items
+    const items: vscode.QuickPickItem[] = agents.map(agent => {
+        const label = agent.name ? `${agent.name} (${agent.id})` : agent.id;
+        return {
+            label: agent.id === currentAgentId ? `$(check) ${label}` : `$(person) ${label}`,
+            description: agent.id === currentAgentId ? 'current' : undefined,
+            detail: `agent:${agent.id}:...`
+        };
+    });
+
+    const selected = await vscode.window.showQuickPick(items, {
+        title: 'OpenClaw — Select Agent',
+        placeHolder: `Current: ${currentAgentId}. Pick an agent to switch to.`
+    });
+
+    if (!selected) { return; }
+
+    // Extract agent id from the selected label (strip icon prefix and name)
+    const rawLabel = selected.label.replace(/^\$\([^)]+\)\s*/, ''); // strip icon
+    // rawLabel is either "agentId" or "Name (agentId)"
+    const matchParen = rawLabel.match(/\(([^)]+)\)$/);
+    const newAgentId = matchParen ? matchParen[1] : rawLabel.trim();
+
+    if (newAgentId === currentAgentId) { return; }
+
+    // Save the new agent ID
+    await setAgentId(newAgentId);
+
+    // Switch the sidebar session to the new agent
+    await chatProvider.changeAgent(newAgentId);
+
+    // Update status bar
+    updateAgentStatusBar(statusBar);
 }
 
 function togglePlanMode() {

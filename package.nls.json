@@ -24,5 +24,7 @@
   "command.newSession.title": "New Session",
   "command.clearChat.title": "Clear Chat",
   "command.showConnectionStatus.title": "Show Connection Status",
-  "command.closeChat.title": "Close Chat"
+  "command.closeChat.title": "Close Chat",
+  "command.selectAgent.title": "Select Agent",
+  "config.agentId.description": "Agent ID to connect to (e.g. main, alice). Default: main."
 }
