@@ -1034,7 +1034,7 @@
         for (const model of modelItems) {
             const item = document.createElement('div');
             item.className = 'agent-ctx-item' + (currentModel === model ? ' agent-ctx-active' : '');
-            item.textContent = `${currentModel === model ? '●' : '○'} ${shortModelName(model)}`;
+            item.textContent = `${currentModel === model ? '●' : '○'} ${model}`;
             item.title = model;
             item.addEventListener('click', () => {
                 vscode.postMessage({ type: 'setAgentModel', agentId, model });
