@@ -264,7 +264,7 @@ export class GroupChatManager {
 
     // ── Agent Management ──────────────────────────────────────────────────────
 
-    public async addAgent(agentId: string): Promise<AgentMember> {
+    public async addAgent(agentId: string, avatar?: string): Promise<AgentMember> {
         if (this._agents.has(agentId)) {
             return this._agents.get(agentId)!;
         }
@@ -274,22 +274,24 @@ export class GroupChatManager {
 
         const sessionKey = buildSessionKey(agentId, `vscode-group-${this._windowId}`);
 
-        // Try to get identity from gateway
+        // Try to get identity from gateway, fallback to provided avatar
         let name = agentId;
-        let avatar = '';
+        let agentAvatar = avatar || '';
         if (this._gateway) {
             try {
                 const identity = await this._gateway.getAgentIdentity(agentId);
                 if (identity) {
                     name = identity.name || agentId;
-                    avatar = identity.avatar || '';
+                    if (identity.avatar) {
+                        agentAvatar = identity.avatar;
+                    }
                 }
             } catch {
                 // Use defaults
             }
         }
 
-        const member: AgentMember = { agentId, sessionKey, name, avatar, color };
+        const member: AgentMember = { agentId, sessionKey, name, avatar: agentAvatar, color };
         this._agents.set(agentId, member);
 
         this._notifyState();
