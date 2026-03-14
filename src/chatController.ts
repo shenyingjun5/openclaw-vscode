@@ -174,7 +174,8 @@ export class ChatController {
                 if (data.planMode !== undefined) {
                     this._planMode = data.planMode;
                 }
-                await this._sendMessage(data.content);
+                console.log('[ChatController] sendMessage received, imageAttachments:', data.imageAttachments ? `${data.imageAttachments.length} items (first mimeType: ${data.imageAttachments[0]?.mimeType}, contentLen: ${data.imageAttachments[0]?.content?.length})` : 'none');
+                await this._sendMessage(data.content, data.imageAttachments);
                 break;
 
             case 'stop':
@@ -468,7 +469,7 @@ export class ChatController {
         this._webview?.postMessage({ type: 'sendingComplete' });
     }
 
-    private async _sendMessage(content: string) {
+    private async _sendMessage(content: string, imageAttachments?: Array<{mimeType: string; content: string}>) {
         if (this._isSending) return;
 
         this._isSending = true;
@@ -568,7 +569,67 @@ export class ChatController {
             });
 
             // 发送 RPC
-            await this._gateway.sendChat(this._sessionKey, messageToSend, runId);
+            // 转换图片附件为 Gateway chat.send 的 attachments 格式
+            const allImageAttachments: Array<{type: string; mimeType: string; content: string}> = [];
+
+            // 1. 粘贴的图片（已有 base64 data）
+            if (imageAttachments) {
+                for (const img of imageAttachments) {
+                    allImageAttachments.push({
+                        type: 'image',
+                        mimeType: img.mimeType,
+                        content: img.content,
+                    });
+                }
+            }
+
+            // 2. 通过附件按钮/拖拽引用的图片文件：从磁盘读取并转为 base64
+            const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'];
+            const mimeMap: Record<string, string> = {
+                '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml',
+            };
+            const imagePathsConverted: string[] = [];
+            const refMatch = messageToSend.match(/\[引用文件 - 请用 read 工具读取后处理\]\n([\s\S]*?)(?:\n\n|$)/);
+            if (refMatch) {
+                const lines = refMatch[1].split('\n').filter(l => l.startsWith('- '));
+                for (const line of lines) {
+                    const filePath = line.slice(2).trim();
+                    const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+                    if (imageExtensions.includes(ext)) {
+                        try {
+                            const fs = require('fs');
+                            const fileBuffer = fs.readFileSync(filePath);
+                            const base64 = fileBuffer.toString('base64');
+                            allImageAttachments.push({
+                                type: 'image',
+                                mimeType: mimeMap[ext] || 'image/png',
+                                content: base64,
+                            });
+                            imagePathsConverted.push(filePath);
+                        } catch {
+                            // 文件读取失败，保留为文本引用
+                        }
+                    }
+                }
+            }
+
+            // 从消息文本中移除已转为附件的图片路径
+            if (imagePathsConverted.length > 0 && refMatch) {
+                const remainingLines = refMatch[1].split('\n')
+                    .filter(l => l.startsWith('- '))
+                    .filter(l => !imagePathsConverted.includes(l.slice(2).trim()));
+                if (remainingLines.length > 0) {
+                    messageToSend = messageToSend.replace(refMatch[0],
+                        `[引用文件 - 请用 read 工具读取后处理]\n${remainingLines.join('\n')}\n\n`);
+                } else {
+                    messageToSend = messageToSend.replace(refMatch[0], '').trim();
+                }
+            }
+
+            const attachments = allImageAttachments.length > 0 ? allImageAttachments : undefined;
+            console.log('[ChatController] sendChat attachments:', attachments ? `${attachments.length} items` : 'none', '| imagePathsConverted:', imagePathsConverted.length);
+            await this._gateway.sendChat(this._sessionKey, messageToSend, runId, attachments);
 
         } catch (err: any) {
             this._isSending = false;

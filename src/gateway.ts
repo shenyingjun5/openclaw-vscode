@@ -483,7 +483,12 @@ export class GatewayClient {
      * 发送聊天消息（fire-and-forget），返回 idempotencyKey 作为 runId 追踪
      * 对齐 webchat: 不等 AI 回复，通过 chat 事件监听 final
      */
-    public async sendChat(sessionKey: string, message: string, idempotencyKey: string): Promise<void> {
+    public async sendChat(
+        sessionKey: string,
+        message: string,
+        idempotencyKey: string,
+        attachments?: Array<{type: string; mimeType: string; content: string}>
+    ): Promise<void> {
         if (this._mode === 'ws') {
             try {
                 if (!this._wsClient) {
@@ -497,6 +502,7 @@ export class GatewayClient {
                     message,
                     deliver: false,
                     idempotencyKey,
+                    ...(attachments && attachments.length > 0 ? { attachments } : {}),
                 });
             } catch (err) {
                 this._activeSessionKey = null;
@@ -935,20 +941,114 @@ export class GatewayClient {
      * 获取可用模型列表（从配置文件读取）
      */
     public async getModels(): Promise<{ models: ModelInfo[], currentModel: string }> {
-        // 读取本地配置文件中的模型（只显示用户配置的模型）
+        // 方式1：通过 Gateway RPC（最准确，反映运行时模型）
+        if (this._mode === 'ws' && this._wsClient && this._wsClient.isConnected()) {
+            try {
+                // 获取模型目录
+                const catalogResult = await this._wsClient.sendRpc('models.list', {});
+                const catalogModels: Array<{id: string; name?: string; provider: string; input?: string[]}> = catalogResult?.models || [];
+
+                // 获取当前会话的实际模型（sessions.list 会通过 resolveSessionModelRef 解析真实模型）
+                let currentModel = 'default';
+                const sessionKey = this._activeSessionKey || 'main';
+                try {
+                    const sessionsResult = await this._wsClient.sendRpc('sessions.list', {
+                        activeMinutes: 1440, // 24小时内的会话
+                        limit: 50,
+                    });
+                    const sessions = sessionsResult?.sessions || [];
+                    // 找到当前 session 的模型
+                    const activeSession = sessions.find((s: any) => s.key === sessionKey || s.key?.endsWith(':' + sessionKey));
+                    if (activeSession?.model) {
+                        currentModel = activeSession.modelProvider
+                            ? `${activeSession.modelProvider}/${activeSession.model}`
+                            : activeSession.model;
+                    } else if (sessionsResult?.defaults?.model) {
+                        currentModel = sessionsResult.defaults.modelProvider
+                            ? `${sessionsResult.defaults.modelProvider}/${sessionsResult.defaults.model}`
+                            : sessionsResult.defaults.model;
+                    }
+                } catch (err) {
+                    console.warn('[Gateway] sessions.list failed, using defaults:', err);
+                    // 如果 sessions.list 失败，尝试从 defaults 获取
+                }
+
+                const models: ModelInfo[] = catalogModels.map(m => ({
+                    id: `${m.provider}/${m.id}`,
+                    name: m.name || m.id,
+                    provider: m.provider,
+                    selected: `${m.provider}/${m.id}` === currentModel || m.id === currentModel
+                }));
+
+                // 确保 currentModel 在列表中
+                if (currentModel && currentModel !== 'default' && !models.find(m => m.selected)) {
+                    // 尝试模糊匹配（只比较 model id 部分）
+                    const modelIdPart = currentModel.includes('/') ? currentModel.split('/').slice(1).join('/') : currentModel;
+                    const fuzzyMatch = models.find(m => m.id.endsWith('/' + modelIdPart) || m.name === modelIdPart);
+                    if (fuzzyMatch) {
+                        fuzzyMatch.selected = true;
+                    } else {
+                        const provider = currentModel.split('/')[0] || '';
+                        models.unshift({
+                            id: currentModel,
+                            name: currentModel,
+                            provider: provider,
+                            selected: true
+                        });
+                    }
+                }
+
+                console.log(`[Gateway] Models via RPC: ${models.length} models, current: ${currentModel}`);
+                return { models, currentModel };
+            } catch (err) {
+                console.warn('[Gateway] RPC models.list failed, falling back to config file:', err);
+            }
+        }
+
+        // 方式2：从本地配置文件读取（离线兜底）
+        // 优先级: 根配置 > 按端口匹配 profile 配置
         const jsonConfigPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
         const yamlConfigPath = path.join(os.homedir(), '.openclaw', 'config.yaml');
 
         try {
             let config: any = null;
 
-            // 优先尝试 JSON 配置
+            // ① 优先尝试根配置
             if (fs.existsSync(jsonConfigPath)) {
                 const content = fs.readFileSync(jsonConfigPath, 'utf-8');
                 config = JSON.parse(content);
             } else if (fs.existsSync(yamlConfigPath)) {
                 const content = fs.readFileSync(yamlConfigPath, 'utf-8');
                 config = yaml.load(content) as any;
+            }
+
+            // ② 回退：按端口匹配 profile 配置
+            if (!config) {
+                let targetPort: number | null = null;
+                try {
+                    const url = new URL(this._baseUrl);
+                    targetPort = url.port ? parseInt(url.port, 10) : (url.protocol === 'https:' ? 443 : 80);
+                } catch { /* ignore */ }
+
+                if (targetPort) {
+                    const profilesDir = path.join(os.homedir(), '.openclaw', 'profiles');
+                    if (fs.existsSync(profilesDir)) {
+                        const profiles = fs.readdirSync(profilesDir);
+                        for (const profile of profiles) {
+                            const profileConfig = path.join(profilesDir, profile, 'openclaw.json');
+                            if (!fs.existsSync(profileConfig)) continue;
+                            try {
+                                const content = fs.readFileSync(profileConfig, 'utf-8');
+                                const pConfig = JSON.parse(content);
+                                if (pConfig?.gateway?.port === targetPort) {
+                                    config = pConfig;
+                                    console.log(`[Gateway] Models loaded from profile: ${profile} (port ${targetPort})`);
+                                    break;
+                                }
+                            } catch { /* skip bad profile */ }
+                        }
+                    }
+                }
             }
 
             if (!config) {

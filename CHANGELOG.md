@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [0.2.24] - 2026-03-14
+
+### Added - 新增 ✨
+
+#### 图片附件多模态视觉传输 🖼️
+- **Vision 原生传输** — 粘贴/拖拽的图片以 base64 附件通过 `chat.send` 的 `attachments` 参数传递，Gateway 自动注入 LLM 多模态 image content block
+- **磁盘图片自动转换** — 通过附件按钮/拖拽引用的图片文件（`.png/.jpg/.jpeg/.gif/.webp/.bmp/.svg`）自动读取并转为 base64 附件
+- **文本去重** — 已转为附件的图片路径从消息文本中自动移除，避免重复引用
+- **Native vision transport** — Pasted/dropped images sent as base64 attachments via `chat.send`'s `attachments` parameter; Gateway injects them into LLM multimodal image content blocks
+- **Auto disk image conversion** — Image files referenced via attachment button/drag-drop (`.png/.jpg/.jpeg/.gif/.webp/.bmp/.svg`) are auto-read and converted to base64 attachments
+- **Text deduplication** — Image paths already converted to attachments are removed from message text to avoid duplication
+
+#### 模型列表 RPC 动态获取 🔄
+- **RPC 优先** — 模型列表优先通过 Gateway RPC `models.list` + `sessions.list` 获取，反映运行时模型目录与当前会话模型
+- **配置文件兜底** — RPC 失败时回退到本地配置文件（根配置 > 按端口匹配 profile 配置）
+- **模糊匹配** — 确保当前模型始终出现在列表中
+- **RPC-first model list** — Model list fetched via Gateway RPC `models.list` + `sessions.list`, reflecting runtime catalog and current session model
+- **Config file fallback** — Falls back to local config if RPC fails (root config > port-matched profile config)
+- **Fuzzy matching** — Ensures current model always appears in the list
+
 ## [0.2.23] - 2026-03-12
 
 ### Changed - 修改 🔄

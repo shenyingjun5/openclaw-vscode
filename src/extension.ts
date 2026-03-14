@@ -16,6 +16,8 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('OpenClaw extension is now active!');
     console.log(`[OpenClaw DEBUG] vscode.env.language = "${vscode.env.language}"`);
 
+
+
     // 初始化服务
     const languageManager = LanguageManager.getInstance();
     const changeManager = ChangeManager.getInstance();
@@ -53,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
                 prompt: '输入今天的进展',
                 placeHolder: '例如: ✅ [完成] 实现创建 Agent Webview'
             });
-            
+
             if (content) {
                 try {
                     await projectMemoryManager.updateProgress(content);

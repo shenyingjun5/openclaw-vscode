@@ -1093,6 +1093,17 @@ ${shortError}
             fullMessage = `[引用文件 - 请用 read 工具读取后处理]\n${allRefs.join('\n')}\n\n${fullMessage}`;
         }
 
+        // 提取图片附件的 base64 数据，通过 chat.send attachments 参数传递
+        // 对齐 webchat：Gateway 会将其注入 LLM 的 image content block（多模态 vision）
+        const imageAttachments = images
+            .filter(img => img.data)
+            .map(img => ({
+                type: 'image',
+                mimeType: (img.data.match(/^data:([^;]+);/) || [])[1] || 'image/png',
+                content: img.data.replace(/^data:[^;]+;base64,/, '')
+            }));
+
+        // 同时保留文件路径文本引用作为 fallback（兼容不支持 vision 的模型）
         for (const img of images) {
             if (img.path) {
                 fullMessage += `\n\n[附件图片: ${img.path}]`;
@@ -1115,10 +1126,13 @@ ${shortError}
         updateSendButtonState();
         showThinking();
 
+        console.log('[Webview] sendMessageNow: images:', images.length, 'imageAttachments:', imageAttachments.length, imageAttachments.map(a => ({ mimeType: a.mimeType, contentLen: a.content?.length })));
+
         vscode.postMessage({
             type: 'sendMessage',
             content: fullMessage,
-            planMode: planMode
+            planMode: planMode,
+            imageAttachments: imageAttachments.length > 0 ? imageAttachments : undefined
         });
     }
 

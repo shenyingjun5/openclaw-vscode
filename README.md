@@ -13,25 +13,26 @@ AI coding assistant for VS Code, powered by OpenClaw.
 - 💡 **Friendly Error Messages** - Smart error classification with actionable suggestions
 - 🎯 **Skills & Workflows** - Auto-detect and use project skills
 - 📎 **File & Image Attachments** - Attach code files and images to your messages
-- 🖼️ **Image Paste** - Paste images directly from clipboard
+- 🖼️ **Image Paste & Vision** - Paste images from clipboard, auto-sent as multimodal vision attachments
 - 📁 **Drag & Drop Files** - Drag files from Explorer, file tree, or editor tabs
+- 🔄 **Dynamic Model List** - Real-time model catalog via Gateway RPC
 - 🔄 **Multi-window Support** - Up to 5 parallel chat sessions with independent history
 - 🌍 **Multi-language** - Full i18n for UI and AI responses (zh-CN, en, ja, ko)
 - 🪟 **Windows & WSL Support** - Enhanced Windows/WSL compatibility with auto-fallback
 
-## What's New in v0.2.10
+## What's New in v0.2.24
 
-### 🔗 Link Rendering Improvements
+### 🖼️ Image Multimodal Vision
 
-- **Markdown auto-links** — Support `<https://...>` syntax as clickable links
-- **Plain-text URL detection** — Bare URLs in messages are auto-detected as clickable links
-- **Code block protection** — URLs inside code blocks and inline code are preserved (placeholder mechanism)
-- **Open in system browser** — All external links open in the default browser instead of navigating within the webview
+- **Native vision transport** — Pasted/dropped images are sent as base64 attachments via Gateway's `chat.send`, injected into the LLM's multimodal image content block
+- **Auto disk image conversion** — Image files (`.png/.jpg/.jpeg/.gif/.webp/.bmp/.svg`) referenced via attachment button or drag-drop are auto-read from disk and converted to base64 attachments
+- **Text deduplication** — Image paths already converted to attachments are removed from message text
 
-### 🔌 Reconnect Status Feedback
+### 🔄 Dynamic Model List via RPC
 
-- **Instant green light** — Status indicator turns green immediately after successful reconnect, error info cleared
-- **Failure update** — Error message updates in status popup on reconnect failure
+- **RPC-first** — Model list fetched via Gateway RPC `models.list` + `sessions.list`, reflecting runtime model catalog
+- **Config file fallback** — Falls back to local config files if RPC fails
+- **Fuzzy matching** — Current model always appears in the list
 
 
 
