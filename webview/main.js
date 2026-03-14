@@ -931,11 +931,28 @@
         });
         menu.appendChild(removeItem);
 
-        // Position below badge
+        // Position below badge (with bounds checking)
         document.body.appendChild(menu);
         const rect = badgeEl.getBoundingClientRect();
-        menu.style.left = rect.left + 'px';
-        menu.style.top = (rect.bottom + 4) + 'px';
+        const padding = 4;
+
+        // Initial position: below badge
+        let left = rect.left;
+        let top = rect.bottom + padding;
+
+        // Ensure menu doesn't go off-screen horizontally (right edge)
+        requestAnimationFrame(() => {
+            const menuRect = menu.getBoundingClientRect();
+            if (menuRect.right > window.innerWidth) {
+                left = Math.max(0, window.innerWidth - menuRect.width - padding);
+            }
+            // Ensure menu doesn't go off-screen vertically (bottom edge)
+            if (menuRect.bottom > window.innerHeight) {
+                top = Math.max(0, rect.top - menuRect.height - padding);
+            }
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+        });
 
         agentContextMenu = menu;
     }
@@ -988,20 +1005,36 @@
 
         document.body.appendChild(sub);
 
-        // Position to the right of the parent item
+        // Position submenu (try right first, then left if no space)
         const parentRect = parentItem.getBoundingClientRect();
-        sub.style.left = (parentRect.right + 4) + 'px';
-        sub.style.top = parentRect.top + 'px';
+        const padding = 4;
+        const tryRight = parentRect.right + padding;
+
+        // Initial position: to the right of parent item, aligned top
+        let subLeft = tryRight;
+        let subTop = parentRect.top;
 
         // Ensure sub-menu doesn't go off-screen
         requestAnimationFrame(() => {
             const subRect = sub.getBoundingClientRect();
+
+            // Check right edge: if it goes off-screen, try left side
             if (subRect.right > window.innerWidth) {
-                sub.style.left = (parentRect.left - subRect.width - 4) + 'px';
+                subLeft = Math.max(0, parentRect.left - subRect.width - padding);
             }
+
+            // Check bottom edge: shift up if necessary
             if (subRect.bottom > window.innerHeight) {
-                sub.style.top = (window.innerHeight - subRect.height - 4) + 'px';
+                subTop = Math.max(0, window.innerHeight - subRect.height - padding);
             }
+
+            // Check top edge: shift down if necessary
+            if (subTop < 0) {
+                subTop = padding;
+            }
+
+            sub.style.left = subLeft + 'px';
+            sub.style.top = subTop + 'px';
         });
     }
 
