@@ -627,6 +627,7 @@
      */
     function renderGroupMessage(msg) {
         console.log(`[Group] renderGroupMessage called with:`, msg);
+        console.log(`[Group] groupMode =`, groupMode, 'groupAgents.length =', groupAgents.length);
 
         if (!msg || msg.role === 'user') {
             console.log(`[Group] Skipping user message or null`);
@@ -642,7 +643,9 @@
         }
 
         // Deduplicate: skip if this exact message was already rendered
-        const contentHash = `${(msg.content || '').substring(0, 100)}:${(msg.toolCalls || []).length}`;
+        // Use more characters for better deduplication (full content when possible)
+        const contentPreview = (msg.content || '').substring(0, 500);
+        const contentHash = `${contentPreview}:${(msg.toolCalls || []).length}:${msg.id}`;
         if (!renderedGroupMessages.has(msg.agentId)) {
             renderedGroupMessages.set(msg.agentId, new Set());
         }
@@ -653,6 +656,11 @@
             return;
         }
         agentHashes.add(contentHash);
+        // Also keep a limited history per agent (last 5 hashes) to avoid memory buildup
+        if (agentHashes.size > 5) {
+            const firstKey = agentHashes.values().next().value;
+            agentHashes.delete(firstKey);
+        }
         console.log(`[Group] Rendering message from ${msg.agentId}:`, msg.content?.substring(0, 100) || '(no text, tools only)');
 
         removeAgentThinking(msg.agentId);

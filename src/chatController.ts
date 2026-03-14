@@ -399,6 +399,8 @@ export class ChatController {
             case 'toggleGroupMode':
                 if (this._groupManager.isGroupMode()) {
                     this._groupManager.leaveGroup();
+                    // Clear chat history when leaving group mode
+                    this.clearChat();
                     this._webview?.postMessage({ type: 'groupStateUpdate', agents: [] });
                 }
                 break;
@@ -1031,11 +1033,19 @@ export class ChatController {
     // ── Group chat public API ─────────────────────────────────────────────────
 
     public async addAgentToGroup(agentId: string, model?: string): Promise<void> {
+        // Clear chat history when starting group chat (first agent added)
+        const isFirstAgent = this._groupManager.getAgents().length === 0;
+        
         const member = await this._groupManager.addAgent(agentId);
         
         // Set model if specified
         if (model) {
             await this._groupManager.setAgentModel(agentId, model);
+        }
+
+        // Clear history when entering group mode for the first time
+        if (isFirstAgent) {
+            this.clearChat();
         }
 
         this._webview?.postMessage({

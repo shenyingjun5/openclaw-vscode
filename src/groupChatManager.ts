@@ -95,6 +95,7 @@ export class GroupChatManager {
     private _responseChain: string[] = [];  // for ping-pong detection
     private _lastUserMessage: string = '';  // for delegation context
     private _lastAgentResponse: Map<string, string> = new Map(); // agentId → last full response
+    private _lastDisplayedContentHash: Map<string, string> = new Map(); // agentId → content hash last shown
 
     // Global model (from main dropdown, used when agent has no override)
     private _globalModel: string | undefined = undefined;
@@ -103,6 +104,8 @@ export class GroupChatManager {
     private _chainQueue: AgentMember[] = [];
     private _chainContext: Array<{ agentName: string; response: string }> = [];
     private _chainOriginalContent: string = '';
+    // Track agents mentioned in the user's original message (for delegation scope)
+    private _userMentionedAgentIds: string[] = [];
     private _chainPlanMode: boolean = false;
 
     // Loop Mode (auto-routing based on plain-text agent mentions)
@@ -431,6 +434,8 @@ export class GroupChatManager {
             throw new Error('GroupChatManager not initialized');
         }
 
+        console.log(`[GroupChat] sendGroupMessage called with content: ${content.substring(0, 100)}`);
+
         // Save user message context and reset delegation tracking
         this._lastUserMessage = content;
         this._conversationDepth = 0;
@@ -443,7 +448,10 @@ export class GroupChatManager {
         this._userMessageInFlight = true;
 
         const agents = this.getAgents();
+        console.log(`[GroupChat] Current agents in group:`, agents.map(a => a.agentId));
+        
         const mentions = parseMentions(content, agents);
+        console.log(`[GroupChat] Parsed mentions:`, mentions);
 
         // Record user message in context (no UI notify — webview already shows it)
         const userMsg: GroupMessage = {
@@ -455,12 +463,16 @@ export class GroupChatManager {
         };
         this._messages.push(userMsg);
 
+        // Save user-mentioned agent IDs for delegation scope
+        this._userMentionedAgentIds = mentions;
+
         // Determine targets (in @mention order)
         const targetAgents: AgentMember[] = mentions
             .map(id => this._agents.get(id))
             .filter((a): a is AgentMember => a !== undefined);
 
         if (targetAgents.length === 0) {
+            console.log(`[GroupChat] No target agents found - no @mentions in message?`);
             this._userMessageInFlight = false;
             return [];
         }
@@ -490,6 +502,10 @@ export class GroupChatManager {
         console.log(`[GroupChat] Created runId ${runId} for firstAgent ${firstAgent.agentId}`);
         try {
             await this._gateway.sendChat(firstAgent.sessionKey, firstMessage, runId);
+            console.log(`[GroupChat] Successfully sent message to gateway for agent ${firstAgent.agentId}`);
+            // Fallback: if event doesn't arrive within timeout, poll history directly.
+            // This handles cases where the chat event is missed/dropped.
+            this._startChainFallbackPoll(firstAgent, runId, 5000, 120000);
         } catch (err) {
             this._pendingRunIds.delete(runId);
             console.error(`[GroupChat] Failed to send to ${firstAgent.agentId}:`, err);
@@ -667,6 +683,14 @@ export class GroupChatManager {
         return toolCalls;
     }
 
+    /**
+     * Create a simple hash from content and tool calls for deduplication.
+     */
+    private _contentHash(content: string, toolCalls: Array<{ name: string; args: any }>): string {
+        const tcStr = JSON.stringify(toolCalls.map(tc => ({ name: tc.name, args: tc.args })));
+        return content.length + '|' + tcStr.length + '|' + content.slice(0, 100) + '|' + tcStr.slice(0, 50);
+    }
+
     private async _fetchLatestAgentMessage(agent: AgentMember, retryCount = 0): Promise<void> {
         if (!this._gateway) {
             return;
@@ -684,13 +708,15 @@ export class GroupChatManager {
         }
 
         try {
-            const history = await this._gateway.getHistory(agent.sessionKey, 10);
-            const lastAssistant = [...history].reverse().find(m => m.role === 'assistant');
+            const history = await this._gateway.getHistory(agent.sessionKey, 20);
+            
+            // Get ALL assistant messages (not just the last one) — handles multi-response cases
+            const allAssistants = [...history].reverse().filter(m => m.role === 'assistant');
 
             // If history hasn't caught up yet, retry once after a short delay.
             // This handles the Gateway race where the "final" chat event fires
             // slightly before the assistant turn is persisted to chat.history.
-            if (!lastAssistant) {
+            if (allAssistants.length === 0) {
                 if (retryCount === 0) {
                     this._responseCountThisRound--; // undo increment — not a real response yet
                     setTimeout(() => this._fetchLatestAgentMessage(agent, 1), 300);
@@ -698,90 +724,111 @@ export class GroupChatManager {
                 return;
             }
 
-            let content = this._extractContent(lastAssistant);
-            let toolCalls = this._extractToolCalls(lastAssistant);
+            // Find the last shown content hash for this agent
+            const lastDisplayedHash = this._lastDisplayedContentHash.get(agent.agentId);
+            
+            // Filter to only new messages (those after the last displayed one by content)
+            let newAssistants = allAssistants;
+            if (lastDisplayedHash) {
+                const lastIdx = allAssistants.findIndex(m => {
+                    const c = this._extractContent(m);
+                    const tc = this._extractToolCalls(m);
+                    const hash = this._contentHash(c, tc);
+                    return hash === lastDisplayedHash;
+                });
+                if (lastIdx >= 0) {
+                    newAssistants = allAssistants.slice(lastIdx + 1);
+                }
+            }
 
-            // If we have toolCalls but no content, check if there's a next message with content
-            // (tool result is often in the next message in history)
-            if (!content && toolCalls.length > 0) {
-                const allAssistantMessages = [...history].reverse();
-                const currentIndex = allAssistantMessages.indexOf(lastAssistant);
-                
-                // Look ahead for messages with content (after this one in history)
-                for (let i = currentIndex + 1; i < allAssistantMessages.length; i++) {
-                    const nextMsg = allAssistantMessages[i];
-                    const nextContent = this._extractContent(nextMsg);
-                    const nextToolCalls = this._extractToolCalls(nextMsg);
+            // If no new messages, skip
+            if (newAssistants.length === 0) {
+                return;
+            }
+
+            // Process each new assistant message
+            for (const assistant of newAssistants) {
+                let content = this._extractContent(assistant);
+                let toolCalls = this._extractToolCalls(assistant);
+
+                // If we have toolCalls but no content, check if there's a next message with content
+                // (tool result is often in the next message in history)
+                if (!content && toolCalls.length > 0) {
+                    const allAssistantMessages = [...history].reverse();
+                    const currentIndex = allAssistantMessages.indexOf(assistant);
                     
-                    // If we find a message with actual text content, use it
-                    if (nextContent && nextContent.trim().length > 0) {
-                        // Merge: keep current toolCalls + new content
-                        if (nextToolCalls.length > 0) {
-                            // Append any additional tool calls
-                            toolCalls = [...toolCalls, ...nextToolCalls];
+                    // Look ahead for messages with content (after this one in history)
+                    for (let i = currentIndex + 1; i < allAssistantMessages.length; i++) {
+                        const nextMsg = allAssistantMessages[i];
+                        const nextContent = this._extractContent(nextMsg);
+                        const nextToolCalls = this._extractToolCalls(nextMsg);
+                        
+                        // If we find a message with actual text content, use it
+                        if (nextContent && nextContent.trim().length > 0) {
+                            // Merge: keep current toolCalls + new content
+                            if (nextToolCalls.length > 0) {
+                                // Append any additional tool calls
+                                toolCalls = [...toolCalls, ...nextToolCalls];
+                            }
+                            content = nextContent;
+                            break;
                         }
-                        content = nextContent;
-                        break;
                     }
                 }
-            }
 
-            // If still no content and no toolCalls after looking ahead, retry once
-            if (!content && toolCalls.length === 0) {
-                // History returned but no content and no tool calls — retry once
-                if (retryCount === 0) {
-                    this._responseCountThisRound--; // undo increment — not a real response yet
-                    setTimeout(() => this._fetchLatestAgentMessage(agent, 1), 300);
+                // If still no content and no toolCalls, skip this message
+                if (!content && toolCalls.length === 0) {
+                    continue;
                 }
-                return;
+
+                // Filter sentinel messages — do not render or route
+                if (isSentinelMessage(content)) {
+                    continue;
+                }
+
+                // Track full agent response for future retrieval
+                if (content) {
+                    this._lastAgentResponse.set(agent.agentId, content);
+                }
+
+                // Update delegation counters (only for first new message to avoid over-counting)
+                if (assistant === newAssistants[0]) {
+                    this._agentResponseCount.set(agent.agentId, (this._agentResponseCount.get(agent.agentId) ?? 0) + 1);
+                    this._responseChain.push(agent.agentId);
+                }
+
+                // Always show agent message in UI
+                const msg: GroupMessage = {
+                    id: `agent-${agent.agentId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    role: 'agent',
+                    agentId: agent.agentId,
+                    agentName: agent.name,
+                    agentColor: agent.color,
+                    agentAvatar: agent.avatar || '',
+                    content,
+                    mentions: [],
+                    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                    timestamp: Date.now(),
+                };
+                this._messages.push(msg);
+                
+                // Update last displayed content hash for this agent
+                this._lastDisplayedContentHash.set(agent.agentId, this._contentHash(content, toolCalls));
+
+                // Notify UI
+                console.log(`[GroupChat] Notifying message for agent ${agent.agentId}: ${content?.substring(0, 50) || '(no content)'}...`);
+                this._notifyMessage(msg);
             }
 
-            // Filter sentinel messages — do not render or route
-            if (isSentinelMessage(content)) {
-                return;
-            }
-
-            // Track full agent response for future retrieval
-            if (content) {
-                this._lastAgentResponse.set(agent.agentId, content);
-            }
-
-            // Update delegation counters
-            this._agentResponseCount.set(agent.agentId, (this._agentResponseCount.get(agent.agentId) ?? 0) + 1);
-            this._responseChain.push(agent.agentId);
-
-            // Deduplicate: check if this exact message was already shown
-            const lastMessage = this._messages[this._messages.length - 1];
-            const isDuplicate = lastMessage
-                && lastMessage.role === 'agent'
-                && lastMessage.agentId === agent.agentId
-                && lastMessage.content === content
-                && (lastMessage.toolCalls?.length ?? 0) === toolCalls.length;
-
-            if (isDuplicate) {
-                console.log(`[GroupChat] Skipping duplicate message from ${agent.agentId}`);
-                return;
-            }
-
-            // Always show agent message in UI
-            const msg: GroupMessage = {
-                id: `agent-${agent.agentId}-${Date.now()}`,
-                role: 'agent',
-                agentId: agent.agentId,
-                agentName: agent.name,
-                agentColor: agent.color,
-                agentAvatar: agent.avatar || '',
-                content,
-                mentions: [],
-                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-                timestamp: Date.now(),
-            };
-            this._messages.push(msg);
             // Trim message history to prevent unbounded memory growth
             if (this._messages.length > 200) {
                 this._messages = this._messages.slice(-200);
             }
-            this._notifyMessage(msg);
+
+            // Get the last processed message for chain/delegation logic
+            const lastAssistant = newAssistants[newAssistants.length - 1];
+            const content = this._extractContent(lastAssistant);
+            const toolCalls = this._extractToolCalls(lastAssistant);
 
             // ── Chain mode: continue to next queued agent ─────────────────────
             if (this._chainQueue.length > 0) {
@@ -814,14 +861,50 @@ export class GroupChatManager {
             // ── Delegation mode (only when chain is complete) ─────────────────
             // Check for @mentions in agent response (agent-to-agent delegation)
             const agents = this.getAgents();
+            console.log(`[GroupChat] Parsing mentions from agent response: "${content.substring(0, 100)}..."`);
             const mentionedIds = parseMentions(content, agents).filter(id => id !== agent.agentId);
+            console.log(`[GroupChat] Found @mentions in response:`, mentionedIds);
 
-            // Re-attach mentions to the message for display
-            msg.mentions = mentionedIds;
+            // Check if this agent was originally tagged by user
+            const wasUserTagged = this._userMentionedAgentIds.includes(agent.agentId);
+            
+            // Delegation rules:
+            // 1. If agent was tagged by user → can delegate to anyone in group (both @mentions and others)
+            // 2. If loop mode is ON → can auto-route from plain-text mentions in response
+            let shouldRoute = false;
+            let routeTargetIds: string[] = [];
 
-            // Determine if delegation should be routed
-            // Only allow delegation when Loop Mode is enabled
-            let shouldRoute = this._loopModeEnabled && mentionedIds.length > 0;
+            if (wasUserTagged) {
+                // Agent was tagged by user - can delegate to anyone in the group
+                // Include all mentioned agents in response
+                routeTargetIds = [...mentionedIds];
+                // Also check for plain-text mentions (like loop mode)
+                const plainTextMentions = parseLoopMentions(content, agents, agent.agentId);
+                for (const id of plainTextMentions) {
+                    if (!routeTargetIds.includes(id)) {
+                        routeTargetIds.push(id);
+                    }
+                }
+                shouldRoute = routeTargetIds.length > 0;
+                console.log(`[GroupChat] Agent ${agent.agentId} was user-tagged, can delegate to:`, routeTargetIds);
+            } else if (this._loopModeEnabled) {
+                // Loop mode is ON - can auto-route from plain-text mentions
+                const autoMentionIds = parseLoopMentions(content, agents, agent.agentId);
+                if (autoMentionIds.length > 0) {
+                    routeTargetIds = autoMentionIds;
+                    shouldRoute = true;
+                    console.log(`[GroupChat] Loop mode enabled, auto-routing to:`, autoMentionIds);
+                }
+            }
+
+            console.log(`[GroupChat] Checking delegation: shouldRoute=${shouldRoute}, wasUserTagged=${wasUserTagged}, loopMode=${this._loopModeEnabled}`);
+
+            // Re-attach mentions to the LAST message (most recent one)
+            const lastMsg = this._messages[this._messages.length - 1];
+            if (lastMsg && lastMsg.role === 'agent' && lastMsg.agentId === agent.agentId) {
+                lastMsg.mentions = routeTargetIds;
+            }
+
             if (shouldRoute) {
                 // Check loop guards
                 if (this._conversationDepth >= this._maxDelegationDepth) {
@@ -860,7 +943,7 @@ export class GroupChatManager {
             if (shouldRoute) {
                 this._conversationDepth++;
 
-                for (const targetId of mentionedIds) {
+                for (const targetId of routeTargetIds) {
                     const targetAgent = this._agents.get(targetId);
                     if (!targetAgent) { continue; }
 
@@ -883,6 +966,8 @@ export class GroupChatManager {
             //   2. Chain queue is empty (not mid-chain)
             //   3. Delegation didn't already route (avoid double-fire)
             //   4. There are agents mentioned by name (without @)
+            // Note: This is now covered by the new delegation logic above, 
+            // but kept for backward compatibility with loop mode auto-routing
             if (this._loopModeEnabled && this._chainQueue.length === 0 && !shouldRoute) {
                 const loopTargetIds = parseLoopMentions(content, agents, agent.agentId);
 
@@ -952,43 +1037,44 @@ export class GroupChatManager {
             }
 
             // Poll history to check if agent has responded
-            this._gateway?.getHistory(agent.sessionKey, 5).then(history => {
+            this._gateway?.getHistory(agent.sessionKey, 20).then(history => {
                 // If runId was consumed while we were fetching, stop
                 if (!this._pendingRunIds.has(runId)) { return; }
 
-                const lastAssistant = [...history].reverse().find(m => m.role === 'assistant');
-                if (!lastAssistant) {
+                // Get ALL assistant messages (not just the last one)
+                const allAssistants = [...history].reverse().filter(m => m.role === 'assistant');
+                if (allAssistants.length === 0) {
                     // No response yet, continue polling
                     setTimeout(poll, intervalMs);
                     return;
                 }
 
-                let content = this._extractContent(lastAssistant);
-                let toolCalls = this._extractToolCalls(lastAssistant);
-
-                // If we have toolCalls but no content, check if there's a next message with content
-                // (tool result is often in the next message in history)
-                if (!content && toolCalls.length > 0) {
-                    const allAssistantMessages = [...history].reverse();
-                    const currentIndex = allAssistantMessages.indexOf(lastAssistant);
-                    
-                    // Look ahead for messages with content (after this one in history)
-                    for (let i = currentIndex + 1; i < allAssistantMessages.length; i++) {
-                        const nextMsg = allAssistantMessages[i];
-                        const nextContent = this._extractContent(nextMsg);
-                        const nextToolCalls = this._extractToolCalls(nextMsg);
-                        
-                        // If we find a message with actual text content, use it
-                        if (nextContent && nextContent.trim().length > 0) {
-                            // Merge: keep current toolCalls + new content
-                            if (nextToolCalls.length > 0) {
-                                toolCalls = [...toolCalls, ...nextToolCalls];
-                            }
-                            content = nextContent;
-                            break;
-                        }
-                    }
+                // Check if there are any NEW messages using _lastDisplayedContentHash
+                const lastDisplayedHash = this._lastDisplayedContentHash.get(agent.agentId);
+                let hasNewMessages = false;
+                
+                if (lastDisplayedHash) {
+                    const lastIdx = allAssistants.findIndex(m => {
+                        const c = this._extractContent(m);
+                        const tc = this._extractToolCalls(m);
+                        const hash = this._contentHash(c, tc);
+                        return hash === lastDisplayedHash;
+                    });
+                    hasNewMessages = lastIdx >= 0 && lastIdx < allAssistants.length - 1;
+                } else {
+                    hasNewMessages = allAssistants.length > 0;
                 }
+
+                if (!hasNewMessages) {
+                    // No new messages, continue polling
+                    setTimeout(poll, intervalMs);
+                    return;
+                }
+
+                // Check if the latest message has content/toolCalls
+                const latestAssistant = allAssistants[allAssistants.length - 1];
+                let content = this._extractContent(latestAssistant);
+                let toolCalls = this._extractToolCalls(latestAssistant);
 
                 // If still no content AND no tool calls, continue polling
                 // (handles case where agent is still thinking or only sent tool results)
@@ -997,29 +1083,21 @@ export class GroupChatManager {
                     return;
                 }
 
-                // Filter sentinel messages — do not route but still show
+                // Filter sentinel messages
                 if (isSentinelMessage(content)) {
                     setTimeout(poll, intervalMs);
                     return;
                 }
 
-                // Check if this response is already displayed
-                // Compare content AND toolCalls to avoid duplicates
-                const alreadyShown = this._messages.some(
-                    m => m.role === 'agent' 
-                        && m.agentId === agent.agentId 
-                        && m.content === content
-                        && (m.toolCalls?.length ?? 0) === toolCalls.length
-                );
-                if (alreadyShown) {
-                    setTimeout(poll, intervalMs);
-                    return;
-                }
-
-                // Found new response — process it as if event arrived
-                console.log(`[GroupChat] Fallback poll found response from ${agent.agentId} (content: ${content?.substring(0, 50) || '(none)'}, toolCalls: ${toolCalls.length})`);
-                this._pendingRunIds.delete(runId);
+                // Found new response — delegate to _fetchLatestAgentMessage which now handles multiple messages
+                // NOTE: Do NOT delete runId here — let the event handler handle it.
+                // This fallback is only for when events are missed/dropped.
+                // If the event arrives later, the event handler will process normally.
+                // Stop polling after found response (don't continue calling setTimeout)
+                console.log(`[GroupChat] Fallback poll found new response from ${agent.agentId}, stopping poll`);
                 this._fetchLatestAgentMessage(agent);
+                // Do NOT continue polling - let event handler manage runId
+                return;
             }).catch(() => {
                 // Retry on error
                 setTimeout(poll, intervalMs);
@@ -1110,11 +1188,13 @@ export class GroupChatManager {
         this._responseChain = [];
         this._lastUserMessage = '';
         this._lastAgentResponse = new Map();
+        this._lastDisplayedContentHash = new Map();
         // Reset chain state
         this._chainQueue = [];
         this._chainContext = [];
         this._chainOriginalContent = '';
         this._chainPlanMode = false;
+        this._userMentionedAgentIds = [];
 
         // Reset loop mode
         this._loopModeEnabled = false;
