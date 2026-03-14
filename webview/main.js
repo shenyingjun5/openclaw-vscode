@@ -186,12 +186,21 @@
      * Lighten a hex color for better readability on dark backgrounds.
      * Blends the color towards white by the given amount (0–1).
      */
-    function lightenColor(hex, amount) {
-        const num = parseInt(hex.replace('#', ''), 16);
-        const r = Math.min(255, Math.round(((num >> 16) & 0xff) + (255 - ((num >> 16) & 0xff)) * amount));
-        const g = Math.min(255, Math.round(((num >> 8) & 0xff) + (255 - ((num >> 8) & 0xff)) * amount));
-        const b = Math.min(255, Math.round((num & 0xff) + (255 - (num & 0xff)) * amount));
-        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    function lightenColor(hex, amount = 0.5) {
+        hex = hex.replace('#', '');
+
+        let r = parseInt(hex.substring(0, 2), 16);
+        let g = parseInt(hex.substring(2, 4), 16);
+        let b = parseInt(hex.substring(4, 6), 16);
+
+        r = Math.round(r + (255 - r) * amount);
+        g = Math.round(g + (255 - g) * amount);
+        b = Math.round(b + (255 - b) * amount);
+
+        return "#" +
+            r.toString(16).padStart(2, '0') +
+            g.toString(16).padStart(2, '0') +
+            b.toString(16).padStart(2, '0');
     }
 
     /**
@@ -618,7 +627,7 @@
      */
     function renderGroupMessage(msg) {
         console.log(`[Group] renderGroupMessage called with:`, msg);
-        
+
         if (!msg || msg.role === 'user') {
             console.log(`[Group] Skipping user message or null`);
             // User messages already rendered in sendMessageNow — do not duplicate
@@ -665,7 +674,7 @@
         html += `<div class="group-agent-avatar" style="background:${color}">${escapeHtml(initial)}</div>`;
         html += `<span class="group-agent-name" style="color:${color}">${name}</span>`;
         html += `</div>`;
-        
+
         // Render tool calls first (if any) — reuse renderToolCard() for consistent display
         if (msg.toolCalls && msg.toolCalls.length > 0) {
             html += '<div class="tool-cards-row">';
@@ -1144,19 +1153,19 @@
     messageInput.addEventListener('input', () => {
         autoResize();
         mentionJustSelected = false; // reset เมื่อพิมพ์ใหม่
-        
+
         // บังคับใช้ dropdown: ถ้ามี @ ที่พิมพ์เอง (ไม่ได้มาจากการเลือก) → ลบออก
         const text = messageInput.value;
         const pos = messageInput.selectionStart || 0;
         const before = text.substring(0, pos);
-        
+
         // ตรวจสอบว่ามี @ ที่ cursor หรือไม่
         const atIdx = before.lastIndexOf('@');
         if (atIdx !== -1 && !before.substring(atIdx).includes(' ')) {
             // ตรวจว่า @ นี้มาจากไหน - ถ้าเป็นการพิมพ์เอง (ไม่มี mentionJustSelected) 
             // ให้ลบ @ ออกและแสดง picker ให้เลือก
         }
-        
+
         const result = getMentionQueryFromInput();
         if (result !== null && groupMode) {
             // ถ้ามี @ ให้แสดง picker (ถ้า picker ซ่อนอยู่แสดงว่าพิมพ์เอง → block การพิมพ์)
@@ -1179,7 +1188,7 @@
                 e.preventDefault();
                 return; // ไม่ให้ส่งข้อความ
             }
-            
+
             // Space = เลือก agent ปัจจุบัน
             if (e.key === ' ' && items.length > 0) {
                 e.preventDefault();
@@ -1432,9 +1441,9 @@
 
     // ========== Tool detail modal ==========
     const toolDetailOverlay = document.getElementById('toolDetailOverlay');
-    const toolDetailTitle   = document.getElementById('toolDetailTitle');
-    const toolDetailBody    = document.getElementById('toolDetailBody');
-    const toolDetailClose   = document.getElementById('toolDetailClose');
+    const toolDetailTitle = document.getElementById('toolDetailTitle');
+    const toolDetailBody = document.getElementById('toolDetailBody');
+    const toolDetailClose = document.getElementById('toolDetailClose');
 
     messages.addEventListener('click', (e) => {
         const btn = e.target.closest('.tool-card-expand');
