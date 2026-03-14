@@ -944,21 +944,44 @@
         document.body.appendChild(menu);
         const rect = badgeEl.getBoundingClientRect();
         const padding = 4;
+        const menuMinWidth = 160;
 
-        // Initial position: below badge
-        let left = rect.left;
+        // Calculate available space
+        const spaceRight = window.innerWidth - rect.left;
+        const spaceLeft = rect.left;
+
+        // Determine horizontal position: prefer left alignment, but ensure enough space
+        let left: number;
+        if (spaceRight >= menuMinWidth) {
+            left = rect.left;
+        } else if (spaceLeft >= menuMinWidth) {
+            left = rect.left - menuMinWidth;
+        } else {
+            left = Math.max(0, window.innerWidth - menuMinWidth - padding);
+        }
+
+        // Initial vertical position: below badge
         let top = rect.bottom + padding;
 
-        // Ensure menu doesn't go off-screen horizontally (right edge)
+        // Ensure menu doesn't go off-screen
         requestAnimationFrame(() => {
             const menuRect = menu.getBoundingClientRect();
-            if (menuRect.right > window.innerWidth) {
-                left = Math.max(0, window.innerWidth - menuRect.width - padding);
+            const actualWidth = menuRect.width || menuMinWidth;
+            const actualHeight = menuRect.height;
+
+            // Re-check horizontal after we know actual width
+            if (left + actualWidth > window.innerWidth) {
+                left = Math.max(0, window.innerWidth - actualWidth - padding);
             }
+            if (left < 0) {
+                left = padding;
+            }
+
             // Ensure menu doesn't go off-screen vertically (bottom edge)
             if (menuRect.bottom > window.innerHeight) {
                 top = Math.max(0, rect.top - menuRect.height - padding);
             }
+
             menu.style.left = left + 'px';
             menu.style.top = top + 'px';
         });
@@ -1014,27 +1037,52 @@
 
         document.body.appendChild(sub);
 
-        // Position submenu (try right first, then left if no space)
+        // Position submenu
         const parentRect = parentItem.getBoundingClientRect();
         const padding = 4;
-        const tryRight = parentRect.right + padding;
 
-        // Initial position: to the right of parent item, aligned top
-        let subLeft = tryRight;
+        // Get submenu dimensions (estimate with min-width since not rendered yet)
+        const subMinWidth = 160;
+        const subEstimatedHeight = 200; // Will be recalculated after render
+
+        // Calculate available space on each side
+        const spaceRight = window.innerWidth - parentRect.right - padding;
+        const spaceLeft = parentRect.left;
+        const spaceBottom = window.innerHeight - parentRect.top;
+
+        // Determine horizontal position: prefer side with more space, but ensure enough space
+        let subLeft: number;
+        const needsRight = spaceRight >= subMinWidth;
+        const needsLeft = spaceLeft >= subMinWidth;
+
+        if (needsRight || !needsLeft) {
+            subLeft = parentRect.right + padding;
+        } else {
+            subLeft = parentRect.left - subMinWidth - padding;
+        }
+
+        // Initial vertical position: align with parent top
         let subTop = parentRect.top;
 
         // Ensure sub-menu doesn't go off-screen
         requestAnimationFrame(() => {
             const subRect = sub.getBoundingClientRect();
+            const actualWidth = subRect.width || subMinWidth;
+            const actualHeight = subRect.height || subEstimatedHeight;
 
-            // Check right edge: if it goes off-screen, try left side
-            if (subRect.right > window.innerWidth) {
-                subLeft = Math.max(0, parentRect.left - subRect.width - padding);
+            // Re-check horizontal after we know actual width
+            // If positioned right but no space, flip to left
+            if (subLeft === parentRect.right + padding && parentRect.right + actualWidth > window.innerWidth) {
+                subLeft = Math.max(0, parentRect.left - actualWidth - padding);
+            }
+            // If positioned left but no space, flip to right
+            if (subLeft < parentRect.left && subLeft + actualWidth > window.innerWidth) {
+                subLeft = Math.max(0, window.innerWidth - actualWidth - padding);
             }
 
             // Check bottom edge: shift up if necessary
-            if (subRect.bottom > window.innerHeight) {
-                subTop = Math.max(0, window.innerHeight - subRect.height - padding);
+            if (subTop + actualHeight > window.innerHeight) {
+                subTop = Math.max(0, window.innerHeight - actualHeight - padding);
             }
 
             // Check top edge: shift down if necessary
